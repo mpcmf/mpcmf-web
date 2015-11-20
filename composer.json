@@ -1,0 +1,37 @@
+{
+    "name": "infostars/mpcmf-web",
+    "minimum-stability": "dev",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Gregory Ostrovsky",
+            "email": "greevex@gmail.com"
+        },
+        {
+            "name": "Dmitriy Emelyanov",
+            "email": "gilberg.vrn@gmail.com"
+        }
+    ],
+    "require": {
+        "infostars/mpcmf-console": "dev-master",
+        "react/socket-client": "^0.4.0@dev",
+        "infostars/mpcmf-module-authex": "dev-master"
+    },
+    "repositories": [
+        {
+            "type": "vcs",
+            "url": "git@github.com:greevex/mpcmf-console.git"
+        },
+        {
+            "type":"vcs",
+            "url":"/opt/src/mpcmf-module-authex"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "mpcmf\\apps\\mpcmfWeb\\": "src/apps/mpcmfWeb/",
+            "mpcmf\\modules\\": "src/apps/mpcmfWeb/modules",
+            "mpcmf\\system\\": "src/apps/mpcmfWeb/system"
+        }
+    }
+}
