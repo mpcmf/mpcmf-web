@@ -1,5 +1,5 @@
 {
-    "name": "infostars/mpcmf-web",
+    "name": "mpcmf/mpcmf-web",
     "minimum-stability": "dev",
     "license": "MIT",
     "authors": [
@@ -13,18 +13,13 @@
         }
     ],
     "require": {
-        "infostars/mpcmf-console": "dev-master",
-        "react/socket-client": "^0.4.0@dev",
-        "infostars/mpcmf-module-authex": "dev-master"
+        "mpcmf/mpcmf-console": "dev-master",
+        "react/socket-client": "^0.4.0@dev"
     },
     "repositories": [
         {
             "type": "vcs",
             "url": "git@github.com:greevex/mpcmf-console.git"
-        },
-        {
-            "type":"vcs",
-            "url":"/opt/src/mpcmf-module-authex"
         }
     ],
     "autoload": {
