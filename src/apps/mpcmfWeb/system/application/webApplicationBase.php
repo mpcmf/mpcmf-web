@@ -419,6 +419,7 @@ abstract class webApplicationBase
     public function dispatchByName($actionName, array $arguments = [], $withoutBase = null, $stopApp = true)
     {
         static $routes;
+        MPCMF_LL_DEBUG && self::log()->addDebug(__METHOD__ . '(' . json_encode(func_get_args(), 320) . ')');
 
         $appKey = get_called_class();
         if(!isset($routes[$appKey])) {
@@ -446,6 +447,7 @@ abstract class webApplicationBase
         static $apiTypes;
 
         profiler::addStack('app::dispatch');
+        MPCMF_LL_DEBUG && self::log()->addDebug(__METHOD__ . '(' . json_encode(func_get_args(), 320) . ')');
 
         if($apiTypes === null) {
             $apiTypes = [
@@ -491,7 +493,7 @@ abstract class webApplicationBase
         }
 
         if($isApiRequest) {
-            $slim->render($jsonTemplate, ['data' => $result]);
+            echo json_encode($result);
             $slim->stop();
         } elseif($isJson) {
             array_walk_recursive($result, function(&$item) {
@@ -544,10 +546,13 @@ abstract class webApplicationBase
 
     public function getUrl($routeName, array $params = [])
     {
+        MPCMF_LL_DEBUG && self::log()->addDebug(__METHOD__ . '(' . json_encode(func_get_args(), 320) . ')');
         $router = $this->slim()->router();
         $namedRoute = $router->getNamedRoute($routeName);
-        if ($namedRoute === null) {
-            return '';
+        if(!$namedRoute) {
+            self::log()->addAlert("Unable to find namedRoute: {$routeName}");
+
+            return null;
         }
         $routePattern = $namedRoute->getPattern();
         preg_match_all('/\:(?<params>\w+)/', $routePattern, $routeParams);
@@ -569,6 +574,7 @@ abstract class webApplicationBase
     public function render($path, $params, $method = 'GET')
     {
         profiler::addStack('app::render');
+        MPCMF_LL_DEBUG && self::log()->addDebug(__METHOD__ . '(' . json_encode(func_get_args(), 320) . ')');
 
         MPCMF_DEBUG && self::log()->addDebug('Rendering: ' . json_encode(func_get_args()));
         $matchedRoutes = $this->slim()->router()->getMatchedRoutes($method, $path . ($params ? ('?' . http_build_query($params)) : ''), true);
