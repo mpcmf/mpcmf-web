@@ -35,7 +35,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  *
  * @author Gregory Ostrovsky <greevex@gmail.com>
  */
-class run
+abstract class run
     extends consoleCommandBase
 {
     const MAX_MEMORY_USAGE = 500;
@@ -310,7 +310,7 @@ class run
             if($serverSoftware === null) {
                 $serverSoftware = 'MPCMF Async PHP ' . phpversion();
             }
-            
+
             if (array_key_exists('HTTP_ACCEPT_ENCODING', $_SERVER) && strpos($_SERVER["HTTP_ACCEPT_ENCODING"], 'gzip') !== false) {
                 $content[1]['Content-Encoding'] = 'gzip';
                 $content[2] = gzencode($content[2], 9);
@@ -442,7 +442,7 @@ class run
         static $app, $router;
 
         if($app === null) {
-            $app = new mpcmfWeb();
+            $app = $this->getBaseApplication();
             //MPCMF_DEBUG && self::log()->addDebug('Before bindings call...');
             $app->beforeBindings();
             $app->processBindings();
@@ -467,4 +467,8 @@ class run
         return $app;
     }
 
+    /**
+     * @return webApplicationBase
+     */
+    abstract protected function getBaseApplication();
 }
