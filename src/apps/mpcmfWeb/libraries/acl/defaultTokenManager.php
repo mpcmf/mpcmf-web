@@ -81,7 +81,17 @@ class defaultTokenManager
     {
         list($ivHex, $token) = explode('.', $tokenString);
 
-        $tokenData = openssl_decrypt($token, self::ENCRYPT_METHOD, self::SOME_PASSWORD, 0, hex2bin($ivHex));
+        if(strlen($ivHex) !== 32) {
+
+            return null;
+        }
+
+        try {
+            $tokenData = openssl_decrypt($token, self::ENCRYPT_METHOD, self::SOME_PASSWORD, 0, hex2bin($ivHex));
+        } catch(\Exception $opensslException) {
+
+            return null;
+        }
 
         return json_decode($tokenData, true);
     }
