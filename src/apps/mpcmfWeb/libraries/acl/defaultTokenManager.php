@@ -79,9 +79,14 @@ class defaultTokenManager
 
     public function decode($tokenString)
     {
+        if(strpos($tokenString, '.') === false) {
+
+            return null;
+        }
+
         list($ivHex, $token) = explode('.', $tokenString);
 
-        if(strlen($ivHex) !== 32) {
+        if(empty($token) || strlen($ivHex) !== 32) {
 
             return null;
         }
