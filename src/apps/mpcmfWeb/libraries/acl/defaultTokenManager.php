@@ -18,18 +18,43 @@ class defaultTokenManager
 {
     use response;
 
+    const CODE_FORBIDDEN = 403;
+
     const VALIDATION_EXPIRE = 86400;
     const SOME_PASSWORD = 'You_really_must_write_your_own_token_manager!';
     const ENCRYPT_METHOD = 'aes128';
 
     public function validateToken($tokenString, $checkLimits = true)
     {
+        if(empty($tokenString)) {
+            return self::error([
+                'errors' => [
+                    'access_token required'
+                ]
+            ], self::CODE_FORBIDDEN);
+        }
+
+        $tokenData = null;
+
         if(($tokenResult = cache::getCached("token/{$tokenString}")) === null) {
-            $tokenResult = is_array($this->decode($tokenString));
+            $tokenData = $this->decode($tokenString);
+            $tokenResult = is_array($tokenData);
             cache::setCached("token/{$tokenString}", $tokenResult, self::VALIDATION_EXPIRE);
         }
 
-        return $tokenResult;
+        if(!$tokenResult) {
+            return self::error([
+                'errors' => [
+                    'Invalid access_token given'
+                ]
+            ], self::CODE_FORBIDDEN);
+        }
+
+        if($tokenData === null) {
+            $tokenData = $this->decode($tokenString);
+        }
+
+        return self::success($tokenData);
     }
 
     /**
