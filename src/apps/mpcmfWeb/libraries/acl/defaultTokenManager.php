@@ -36,13 +36,13 @@ class defaultTokenManager
 
         $tokenData = null;
 
-        if(($tokenResult = cache::getCached("token/{$tokenString}")) === null) {
+        if(($tokenResult = cache::getCached("token/{$tokenString}")) === false) {
             $tokenData = $this->decode($tokenString);
             $tokenResult = is_array($tokenData);
-            cache::setCached("token/{$tokenString}", $tokenResult, self::VALIDATION_EXPIRE);
+            cache::setCached("token/{$tokenString}", (int)$tokenResult, self::VALIDATION_EXPIRE);
         }
 
-        if(!$tokenResult) {
+        if($tokenResult === 0) {
             return self::error([
                 'errors' => [
                     'Invalid access_token given'
