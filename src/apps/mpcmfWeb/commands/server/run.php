@@ -409,6 +409,9 @@ abstract class run
         foreach($headers as $headerKey => $headerValue) {
             $_SERVER['HTTP_' . strtoupper(preg_replace('/[\-\s]/', '_', $headerKey))] = $headerValue;
         }
+        if(isset($_SERVER['HTTP_X_REAL_IP'])) {
+            $_SERVER['REMOTE_ADDR'] = $_SERVER['HTTP_X_REAL_IP'];
+        }
 
         $_SERVER['QUERY_STRING'] = $queryString;
 
