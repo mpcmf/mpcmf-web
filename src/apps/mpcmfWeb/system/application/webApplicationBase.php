@@ -39,12 +39,15 @@ abstract class webApplicationBase
     use singleton;
 
     const DEFAULT_TEMPLATES_DIRECTORY = '/system/modules/moduleBase/templates';
+    const REFRESH_SESSION_AFTER = 600;
 
     const REQUEST__WITHOUT_BASE = '_wbase';
     const REQUEST__JSON = '_json';
     const REQUEST__JSON_PRETTY = '_jpretty';
 
     private $beforeBindingsProcessed = false;
+
+    public $title;
 
     /**
      * @var Slim[]
@@ -484,6 +487,13 @@ abstract class webApplicationBase
                 $slim->redirect($forbiddenUrl);
                 $slim->stop();
             }
+            $user = $aclManager->getCurrentUser();
+            $timeNow = time();
+            if (($timeNow - $user->getLastActivity() > self::REFRESH_SESSION_AFTER) && !$user->isGuest()) {
+                $user->setLastActivity($timeNow);
+                userMapper::getInstance()->save($user);
+                $aclManager->saveUserCookie($user);
+            }
         }
 
         try {
@@ -536,6 +546,7 @@ abstract class webApplicationBase
                     $result['_template'] = '';
                     $slim->render($action->getTemplate(), $result);
                 }
+                $this->title = null;
             } catch(Stop $stopException) {
                 if(!$stopApp) {
                     throw $stopException;
@@ -746,5 +757,21 @@ abstract class webApplicationBase
         } else {
             return false;
         }
+    }
+
+    /**
+     * @return mixed
+     */
+    public function getTitle()
+    {
+        return $this->title;
+    }
+
+    /**
+     * @param mixed $title
+     */
+    public function setTitle($title)
+    {
+        $this->title = $title;
     }
 }
