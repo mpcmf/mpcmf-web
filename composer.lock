@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#composer-lock-the-lock-file",
         "This file is @generated automatically"
     ],
-    "content-hash": "e6bb6195fb0d46d1a58e840fe5f866ab",
+    "content-hash": "2df1ed775f5c703c8d599ae01d9a4504",
     "packages": [
         {
             "name": "evenement/evenement",
@@ -309,12 +309,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/mpcmf/mpcmf-core.git",
-                "reference": "a2aa90d635d0e3f491521e786ed36edb91d36939"
+                "reference": "cdedfe3e6aefeae8b3aa87acac1d0f0424138acc"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/mpcmf/mpcmf-core/zipball/a2aa90d635d0e3f491521e786ed36edb91d36939",
-                "reference": "a2aa90d635d0e3f491521e786ed36edb91d36939",
+                "url": "https://api.github.com/repos/mpcmf/mpcmf-core/zipball/cdedfe3e6aefeae8b3aa87acac1d0f0424138acc",
+                "reference": "cdedfe3e6aefeae8b3aa87acac1d0f0424138acc",
                 "shasum": ""
             },
             "require": {
@@ -324,7 +324,6 @@
                 "php": ">=5.5.10",
                 "phpdocumentor/reflection-docblock": "~2.0",
                 "phpmailer/phpmailer": "dev-master",
-                "react/http": "^0.4",
                 "slim/slim": "2.*",
                 "smarty/smarty": "3.1.27",
                 "symfony/console": "~2.6",
@@ -372,7 +371,7 @@
                 "smarty",
                 "threads"
             ],
-            "time": "2017-06-09 15:14:45"
+            "time": "2017-06-13 15:19:57"
         },
         {
             "name": "phpdocumentor/reflection-docblock",
@@ -429,12 +428,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/PHPMailer/PHPMailer.git",
-                "reference": "699d57dc01914d3b16ea3a2dbeee87b2e08e3377"
+                "reference": "29b2042fd1a5cbb987a26f0db1b0ba5af302f920"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/PHPMailer/PHPMailer/zipball/699d57dc01914d3b16ea3a2dbeee87b2e08e3377",
-                "reference": "699d57dc01914d3b16ea3a2dbeee87b2e08e3377",
+                "url": "https://api.github.com/repos/PHPMailer/PHPMailer/zipball/29b2042fd1a5cbb987a26f0db1b0ba5af302f920",
+                "reference": "29b2042fd1a5cbb987a26f0db1b0ba5af302f920",
                 "shasum": ""
             },
             "require": {
@@ -498,7 +497,7 @@
                 }
             ],
             "description": "PHPMailer is a full-featured email creation and transfer class for PHP",
-            "time": "2017-05-31 05:26:14"
+            "time": "2017-06-13 11:59:32"
         },
         {
             "name": "psr/http-message",
@@ -633,16 +632,16 @@
         },
         {
             "name": "react/dns",
-            "version": "dev-master",
+            "version": "v0.4.9",
             "source": {
                 "type": "git",
                 "url": "https://github.com/reactphp/dns.git",
-                "reference": "3fa027f1fe57e146203538c41db5b3e6c296b67a"
+                "reference": "288b4f36972cdc2f81dae1d1a58a0467e3f625cb"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/reactphp/dns/zipball/3fa027f1fe57e146203538c41db5b3e6c296b67a",
-                "reference": "3fa027f1fe57e146203538c41db5b3e6c296b67a",
+                "url": "https://api.github.com/repos/reactphp/dns/zipball/288b4f36972cdc2f81dae1d1a58a0467e3f625cb",
+                "reference": "288b4f36972cdc2f81dae1d1a58a0467e3f625cb",
                 "shasum": ""
             },
             "require": {
@@ -653,12 +652,10 @@
                 "react/socket": "^1.0 || ^0.8 || ^0.7 || ^0.6 || ^0.5 || ^0.4.4",
                 "react/stream": "^1.0 || ^0.7 || ^0.6 || ^0.5 || ^0.4.5"
             },
-            "type": "library",
-            "extra": {
-                "branch-alias": {
-                    "dev-master": "0.4-dev"
-                }
+            "require-dev": {
+                "phpunit/phpunit": "^5.0 || ^4.8.10"
             },
+            "type": "library",
             "autoload": {
                 "psr-4": {
                     "React\\Dns\\": "src"
@@ -668,12 +665,12 @@
             "license": [
                 "MIT"
             ],
-            "description": "Async DNS resolver.",
+            "description": "Async DNS resolver for ReactPHP",
             "keywords": [
                 "dns",
                 "dns-resolver"
             ],
-            "time": "2015-09-06 18:06:51"
+            "time": "2017-05-01T17:21:03+00:00"
         },
         {
             "name": "react/event-loop",
@@ -718,28 +715,83 @@
             "time": "2017-04-27 10:56:23"
         },
         {
+             "name": "guzzlehttp/psr7",
+             "version": "1.3.1",
+             "source": {
+                 "type": "git",
+                 "url": "https://github.com/guzzle/psr7.git",
+                 "reference": "5c6447c9df362e8f8093bda8f5d8873fe5c7f65b"
+             },
+             "dist": {
+                 "type": "zip",
+                 "url": "https://api.github.com/repos/guzzle/psr7/zipball/5c6447c9df362e8f8093bda8f5d8873fe5c7f65b",
+                 "reference": "5c6447c9df362e8f8093bda8f5d8873fe5c7f65b",
+                 "shasum": ""
+             },
+             "require": {
+                 "php": ">=5.4.0",
+                 "psr/http-message": "~1.0"
+             },
+             "provide": {
+                 "psr/http-message-implementation": "1.0"
+             },
+             "require-dev": {
+                 "phpunit/phpunit": "~4.0"
+             },
+             "type": "library",
+             "extra": {
+                 "branch-alias": {
+                     "dev-master": "1.4-dev"
+                 }
+             },
+             "autoload": {
+                 "psr-4": {
+                     "GuzzleHttp\\Psr7\\": "src/"
+                 },
+                 "files": [
+                     "src/functions_include.php"
+                 ]
+             },
+             "notification-url": "https://packagist.org/downloads/",
+             "license": [
+                 "MIT"
+             ],
+             "authors": [
+                 {
+                     "name": "Michael Dowling",
+                     "email": "mtdowling@gmail.com",
+                     "homepage": "https://github.com/mtdowling"
+                 }
+             ],
+             "description": "PSR-7 message implementation",
+             "keywords": [
+                 "http",
+                 "message",
+                 "stream",
+                 "uri"
+             ],
+             "time": "2016-06-24 23:00:38"
+        },
+        {
             "name": "react/http",
-            "version": "0.4.x-dev",
+            "version": "dev-master",
             "source": {
                 "type": "git",
                 "url": "https://github.com/reactphp/http.git",
-                "reference": "aac319bd789cbc7b478d42cde2d03596e97e3222"
+                "reference": "545723837ceed39cbd81e479ab98198bb2c5893b"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/reactphp/http/zipball/aac319bd789cbc7b478d42cde2d03596e97e3222",
-                "reference": "aac319bd789cbc7b478d42cde2d03596e97e3222",
+                "url": "https://api.github.com/repos/reactphp/http/zipball/545723837ceed39cbd81e479ab98198bb2c5893b",
+                "reference": "545723837ceed39cbd81e479ab98198bb2c5893b",
                 "shasum": ""
             },
             "require": {
-                "evenement/evenement": "^2.0 || ^1.0",
-                "php": ">=5.3.0",
+                "php": ">=5.4.0",
+                "guzzlehttp/psr7": "^1.0",
                 "react/socket": "^0.4",
-                "react/stream": "^0.4.4",
-                "ringcentral/psr7": "^1.2"
-            },
-            "require-dev": {
-                "phpunit/phpunit": "^4.8.10||^5.0"
+                "react/stream": "^0.4",
+                "evenement/evenement": "^2.0"
             },
             "type": "library",
             "autoload": {
@@ -751,11 +803,58 @@
             "license": [
                 "MIT"
             ],
-            "description": "Library for building an evented http server.",
+            "description": "Event-driven, streaming plaintext HTTP and secure HTTPS server for ReactPHP",
             "keywords": [
-                "http"
+                "event-driven",
+                "http",
+                "https",
+                "reactphp",
+                "server",
+                "streaming"
             ],
-            "time": "2017-02-13 14:12:50"
+            "time": "2015-12-28 14:55:30"
+        },
+        {
+            "name": "react/socket",
+            "version": "v0.4.8",
+            "source": {
+              "type": "git",
+              "url": "https://github.com/reactphp/socket.git",
+              "reference": "cf074e53c974df52388ebd09710a9018894745d2"
+            },
+            "dist": {
+              "type": "zip",
+              "url": "https://api.github.com/repos/reactphp/socket/zipball/cf074e53c974df52388ebd09710a9018894745d2",
+              "reference": "cf074e53c974df52388ebd09710a9018894745d2",
+              "shasum": ""
+            },
+            "require": {
+              "evenement/evenement": "~2.0|~1.0",
+              "php": ">=5.3.0",
+              "react/event-loop": "0.4.*|0.3.*",
+              "react/promise": "^2.0 || ^1.1",
+              "react/stream": "^0.4.5"
+            },
+            "require-dev": {
+              "clue/block-react": "^1.1",
+              "phpunit/phpunit": "~4.8",
+              "react/socket-client": "^0.5.1"
+            },
+            "type": "library",
+            "autoload": {
+              "psr-4": {
+                  "React\\Socket\\": "src"
+              }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+              "MIT"
+            ],
+            "description": "Async, streaming plaintext TCP/IP and secure TLS socket server for React PHP",
+            "keywords": [
+              "Socket"
+            ],
+            "time": "2017-01-26 09:23:38"
         },
         {
             "name": "react/promise",
@@ -854,70 +953,25 @@
             "time": "2016-12-27T08:12:19+00:00"
         },
         {
-            "name": "react/socket",
-            "version": "dev-master",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/reactphp/socket.git",
-                "reference": "9b3eba6e4983d27a81bce429d69145b4f632d53f"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/reactphp/socket/zipball/9b3eba6e4983d27a81bce429d69145b4f632d53f",
-                "reference": "9b3eba6e4983d27a81bce429d69145b4f632d53f",
-                "shasum": ""
-            },
-            "require": {
-                "evenement/evenement": "~2.0|~1.0",
-                "php": ">=5.3.0",
-                "react/dns": "0.4.*|0.3.*",
-                "react/event-loop": "^1.0 || ^0.5 || ^0.4 || ^0.3.5",
-                "react/promise": "^2.1 || ^1.2",
-                "react/promise-timer": "~1.0",
-                "react/stream": "^1.0 || ^0.7 || ^0.6 || ^0.5 || ^0.4.5"
-            },
-            "type": "library",
-            "extra": {
-                "branch-alias": {
-                    "dev-master": "0.4-dev"
-                }
-            },
-            "autoload": {
-                "psr-4": {
-                    "React\\Socket\\": "src"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "description": "Library for building an evented socket server.",
-            "keywords": [
-                "Socket"
-            ],
-            "time": "2015-08-07 19:59:11"
-        },
-        {
             "name": "react/socket-client",
-            "version": "dev-master",
+            "version": "0.4.x-dev",
             "source": {
                 "type": "git",
                 "url": "https://github.com/reactphp/socket-client.git",
-                "reference": "5e3c4c60b14204660ffedc5e1d6813c708b2ce2c"
+                "reference": "49e730523b73d912e56f7a41f53ed3fc083ae167"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/reactphp/socket-client/zipball/5e3c4c60b14204660ffedc5e1d6813c708b2ce2c",
-                "reference": "5e3c4c60b14204660ffedc5e1d6813c708b2ce2c",
+                "url": "https://api.github.com/repos/reactphp/socket-client/zipball/49e730523b73d912e56f7a41f53ed3fc083ae167",
+                "reference": "49e730523b73d912e56f7a41f53ed3fc083ae167",
                 "shasum": ""
             },
             "require": {
-                "php": ">=5.3.0",
-                "react/dns": "0.4.*|0.3.*",
-                "react/event-loop": "0.4.*|0.3.*",
-                "react/promise": "^2.1 || ^1.2",
-                "react/promise-timer": "~1.0",
-                "react/stream": "^0.6 || ^0.5 || ^0.4.5"
+                "php": ">=5.4.0",
+                "react/dns": "0.4.*",
+                "react/event-loop": "0.4.*",
+                "react/promise": "~2.0",
+                "react/stream": "0.4.*"
             },
             "type": "library",
             "extra": {
@@ -938,7 +992,7 @@
             "keywords": [
                 "Socket"
             ],
-            "time": "2015-09-24 13:51:48"
+            "time": "2016-12-06 10:54:49"
         },
         {
             "name": "react/stream",
@@ -1525,6 +1579,7 @@
     "aliases": [],
     "minimum-stability": "dev",
     "stability-flags": {
+        "react/http": 20,
         "mpcmf/mpcmf-console": 20,
         "mpcmf/mpcmf-core": 20,
         "react/socket-client": 20
