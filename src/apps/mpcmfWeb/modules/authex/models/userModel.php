@@ -2,7 +2,7 @@
 
 namespace mpcmf\modules\authex\models;
 
-use mpcmf\modules\authex\mappers\groupMapper;
+use mpcmf\modules\authex\mappers\tokenMapper;
 use mpcmf\modules\authex\mappers\userMapper;
 use mpcmf\modules\moduleBase\models\modelBase;
 use mpcmf\system\acl\aclManager;
@@ -33,6 +33,8 @@ use mpcmf\system\pattern\singleton;
  * @method setRegDate(int $date)
  * @method getLastVisit
  * @method setLastVisit(int $date)
+ * @method getLastActivity
+ * @method setLastActivity(int $date)
  * @method getReferer
  * @method setReferer(string $refererId)
  * @method array getInviteLinks()
@@ -48,7 +50,7 @@ class userModel
 {
     use singleton;
 
-    const SPF_GRAVATAR = 'http://www.gravatar.com/avatar/%32s?s=%d&d=mm';
+    const SPF_GRAVATAR = '//www.gravatar.com/avatar/%32s?s=%d&d=mm';
     const SPF_INVITE = 'http://%s%s';
 
     private $fullName;
@@ -115,6 +117,27 @@ class userModel
         }
 
         return $this->inviteLinks;
+    }
+
+    /**
+     * @return mixed
+     * @throws \mpcmf\modules\moduleBase\exceptions\modelException
+     * @throws \mpcmf\modules\moduleBase\exceptions\mapperException
+     */
+    public function getToken()
+    {
+        static $tokenMapper;
+
+        if ($tokenMapper === null) {
+            $tokenMapper = tokenMapper::getInstance();
+        }
+
+        /** @var tokenModel $tokenModel */
+        $tokenModel = $tokenMapper->getBy([
+            tokenMapper::FIELD__USER => $this->getIdValue()
+        ]);
+
+        return $tokenModel->getToken();
     }
 
     /**
