@@ -263,10 +263,11 @@ abstract class run
 
         cli_set_process_title("mpcmf/console server:run/child -b {$this->childHost} -p {$this->port}");
 
-        posix_setgid(99);
-        posix_setuid(99);
-        posix_seteuid(99);
-        posix_setegid(99);
+// @FIX: nobody permissions tmp
+//        posix_setgid(99);
+//        posix_setuid(99);
+//        posix_seteuid(99);
+//        posix_setegid(99);
 
         $loop = Factory::create();
         $socket = new reactSocketServer($loop);
