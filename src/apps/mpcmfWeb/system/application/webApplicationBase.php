@@ -491,7 +491,7 @@ abstract class webApplicationBase
             $timeNow = time();
             if (($timeNow - $user->getLastActivity() > self::REFRESH_SESSION_AFTER) && !$user->isGuest()) {
                 $user->setLastActivity($timeNow);
-                userMapper::getInstance()->save($user);
+                $user->getMapper()->save($user);
                 $aclManager->saveUserCookie($user);
             }
         }
