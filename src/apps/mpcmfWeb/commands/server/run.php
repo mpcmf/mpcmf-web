@@ -13,19 +13,20 @@ use mpcmf\system\helper\system\profiler;
 use mpcmf\system\threads\thread;
 use React\Dns\Resolver\Factory as reactResolver;
 use React\EventLoop\Factory;
-use React\Http\Request as reactRequest;
 use React\Http\Response as reactResponse;
 use React\Http\Server as reactHttpServer;
+use React\Http\ServerRequest;
+use React\Promise\Promise;
 use React\Socket\Connection;
 use React\Socket\Server as reactSocketServer;
 use React\SocketClient\Connector;
+use React\Stream\ReadableStreamInterface;
+use React\Stream\Stream;
 use React\Stream\Stream as reactStream;
 use Slim\Environment;
-use Slim\Http\Headers;
 use Slim\Http\Request;
 use Slim\Http\Response;
-use Slim\Http\Util;
-use Slim\Slim;
+use Slim\Route;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -411,7 +412,7 @@ abstract class run
 
         $_SERVER['DOCUMENT_ROOT'] = $settings['document_root'];
 
-        $_SERVER['REMOTE_ADDR'] = $request->getRemoteAddress();
+        $_SERVER['REMOTE_ADDR'] = '127.0.0.1';
         $_SERVER['REMOTE_PORT'] = 0;
 
         $_SERVER['SERVER_SOFTWARE'] = $serverSoftware;
