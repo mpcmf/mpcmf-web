@@ -13,10 +13,11 @@
         }
     ],
     "require": {
-        "react/http": "dev-master#545723837ceed39cbd81e479ab98198bb2c5893b",
+        "react/http": "^0.7@dev",
         "mpcmf/mpcmf-console": "dev-master",
         "mpcmf/mpcmf-core": "dev-master",
-        "react/socket-client": "^0.4.0@dev"
+        "react/socket-client": "^0.5.0@dev",
+        "react/socket": "^0.7@dev"
     },
     "repositories": [
         {

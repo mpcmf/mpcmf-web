@@ -178,7 +178,8 @@ abstract class run
 
         $output->writeln('<error>[MASTER]</error> Binding callables and building socketServer');
 
-        $socketServer = new reactSocketServer($loop);
+        $socketServer = new reactSocketServer("{$bindMasterTo['host']}:{$bindMasterTo['port']}", $loop);
+        $socketServer->pause();
 
         $clientId = null;
 
@@ -244,11 +245,9 @@ abstract class run
                 $clientConnection->resume();
             });
         });
-
-
+        $socketServer->resume();
 
         $output->writeln("<error>[MASTER]</error> Starting server on {$bindMasterTo['host']}:{$bindMasterTo['port']}");
-        $socketServer->listen($bindMasterTo['port'], $bindMasterTo['host']);
 
         $loop->addPeriodicTimer(1.0, [$this, 'checkThreads']);
         $loop->run();
@@ -270,66 +269,86 @@ abstract class run
 //        posix_setegid(99);
 
         $loop = Factory::create();
-        $socket = new reactSocketServer($loop);
-        $http = new reactHttpServer($socket);
+        $socket = new reactSocketServer("{$this->childHost}:{$this->port}", $loop);
+        $socket->pause();
+        $http = new reactHttpServer(function (ServerRequest $request) {
+            if(MPCMF_DEBUG) {
+                // @HACK for get client address (reflection hack)
+                /** @var ReadableStreamInterface $requestInput */
+                $requestInput = $request->getBody()->input;
+                $thief = function (ReadableStreamInterface $reflectionClass) {
+                    $connection = isset($reflectionClass->input) ? $reflectionClass->input : $reflectionClass->stream->input;
 
-        $http->on('request', function (reactRequest $request, reactResponse $response) use ($output) {
-            //MPCMF_DEBUG && $output->writeln("<info>[CHILD:{$this->port}]</info> New connection");
-            //MPCMF_DEBUG && $clientName = $request->getRemoteAddress() . '#' . spl_object_hash($request);
-            //MPCMF_DEBUG && $output->writeln("<info>[{$clientName}] Client connected");
+                    return $connection instanceof Connection ? $connection : $connection->input;
+                };
+                $thief = \Closure::bind($thief, null, $requestInput);
+                // @HACK for get client address (reflection hack)
+
+                $this->output->writeln("<info>[CHILD:{$this->port}]</info> New connection");
+                $clientName = $thief($requestInput)->getRemoteAddress() . '#' . spl_object_hash($request);
+                $this->output->writeln("<info>[{$clientName}] Client connected");
+            }
+
 
             profiler::resetStack();
 
-            if(!$this->prepare($request, $response, $output)) {
-                return;
-            }
+            return new Promise(function ($resolve, $reject) use ($request) {
+                /** @var Stream $body */
+                $body = $request->getBody();
+                $requestContent = '';
+                $body->on('data', function ($data) use (&$requestContent) {
+                    $requestContent .= $data;
+                });
+                $body->on('end', function () use ($resolve, &$requestContent, $request) {
+                    $prepareResponse = $this->prepare($request, $requestContent);
+                    if(!$prepareResponse['status']) {
+                        $resolve($prepareResponse['response']);
+                        return;
+                    }
 
-            //MPCMF_DEBUG && $output->writeln("<info>[{$clientName}] Starting application</info>");
+                    try {
+                        $app = $this->app($requestContent);
+                        $slim = $app->slim();
+                        $originApplication = $this->applicationInstance->getCurrentApplication();
+                        $this->applicationInstance->setApplication($app);
+                        $slim->call();
+                    } catch(\Exception $e) {
+                        $resolve(new reactResponse(500, [], "Exception: {$e->getMessage()} in {$e->getFile()}:{$e->getLine()}\n{$e->getTraceAsString()}"));
+                        return;
+                    }
 
-            try {
-                $app = $this->app();
-                $slim = $app->slim();
-                $originApplication = $this->applicationInstance->getCurrentApplication();
-                $this->applicationInstance->setApplication($app);
-                $slim->call();
-            } catch(\Exception $e) {
-                $response->writeHead(500);
-                $response->end("Exception: {$e->getMessage()} in {$e->getFile()}:{$e->getLine()}\n{$e->getTraceAsString()}");
-                return;
-            }
+                    $content = $slim->response->finalize();
+                    \Slim\Http\Util::serializeCookies($content[1], $slim->response->cookies, $slim->settings);
+                    $content[1] = $content[1]->all();
+                    $this->applicationInstance->setApplication($originApplication);
 
-            /** @var int[]|Headers[]|string[] $content */
-            $content = $slim->response->finalize();
-            Util::serializeCookies($content[1], $slim->response->cookies, $slim->settings);
-            $content[1] = $content[1]->all();
-            $this->applicationInstance->setApplication($originApplication);
+                    static $serverSoftware;
+                    if($serverSoftware === null) {
+                        $serverSoftware = 'MPCMF Async PHP ' . phpversion();
+                    }
 
-            //MPCMF_DEBUG && $output->writeln("<info>[{$clientName}] Ending application</info>");
+                    if (array_key_exists('HTTP_ACCEPT_ENCODING', $_SERVER) && strpos($_SERVER['HTTP_ACCEPT_ENCODING'][0], 'gzip') !== false) {
+                        $content[1]['Content-Encoding'] = 'gzip';
+                        $content[2] = gzencode($content[2], 9);
+                    }
 
-            //MPCMF_DEBUG && $output->writeln("<info>[CHILD:{$this->port}]</info> Writing data and closing connection");
-            static $serverSoftware;
-            if($serverSoftware === null) {
-                $serverSoftware = 'MPCMF Async PHP ' . phpversion();
-            }
+                    $content[1]['X-PHP-Server'] = $serverSoftware;
+                    $content[1]['X-PHP-Server-Addr'] = "{$this->childHost}:{$this->port}";
+                    $response = new ReactResponse($content[0], $content[1], $content[2]);
+                    MPCMF_DEBUG && $this->output->writeln("<info>[CHILD:{$this->port}]</info> Connection closed");
 
-            if (array_key_exists('HTTP_ACCEPT_ENCODING', $_SERVER) && strpos($_SERVER["HTTP_ACCEPT_ENCODING"], 'gzip') !== false) {
-                $content[1]['Content-Encoding'] = 'gzip';
-                $content[2] = gzencode($content[2], 9);
-            }
-
-            $content[1]['X-PHP-Server'] = $serverSoftware;
-            $content[1]['X-PHP-Server-Addr'] = "{$this->childHost}:{$this->port}";
-            $response->writeHead($content[0], $content[1]);
-            $response->end($content[2]);
-            //MPCMF_DEBUG && $output->writeln("<info>[CHILD:{$this->port}]</info> Connection closed");
+                    $resolve($response);
+                });
+            });
         });
+        $http->listen($socket);
+        $socket->resume();
 
-        $output->writeln("<error>[CHILD]</error> Starting child server on {$this->childHost}:{$this->port}");
-        $socket->listen($this->port, $this->childHost);
+        $this->output->writeln("<error>[CHILD]</error> Starting child server on {$this->childHost}:{$this->port}");
         $loop->run();
     }
 
-    public function prepare(reactRequest $request, reactResponse $response, $output)
+    public function prepare(ServerRequest $request, $content)
     {
         static $serverSoftware, $settings;
         if($serverSoftware === null) {
@@ -347,31 +366,37 @@ abstract class run
         $GLOBALS['MPCMF_START_TIME'] = $now;
 
         /** @var Uri $requestUrl */
-        $requestUrl = $request->getUrl();
+        $requestUrl = $request->getUri();
         $path = $requestUrl->getPath();
 
         if ($path === '/favicon.ico') {
-            $response->writeHead(404);
-            $response->end('FAVICON NOT FOUND! :)');
-            //MPCMF_DEBUG && $output->writeln("<info>[CHILD:{$this->port}]</info> Connection closed by favicon catch");
+            $response = new ReactResponse(404, [], 'FAVICON NOT FOUND! :)');
+            MPCMF_DEBUG && $this->output->writeln("<info>[CHILD:{$this->port}]</info> Connection closed by favicon catch");
 
-            return false;
+            return [
+                'status' => false,
+                'response' => $response,
+                'request' => $request
+            ];
         }
 
-        $realpath = realpath($settings['document_root'] . $path);
-        if($realpath !== false && strpos($realpath, $settings['document_root']) !== false && (file_exists($realpath) && !is_dir($realpath))) {
-            $response->writeHead(200, [
-                'Content-type' => \GuzzleHttp\Psr7\mimetype_from_filename($realpath),
-                'Content-length' => filesize($realpath),
-            ]);
-            $response->end(file_get_contents($realpath));
-            //MPCMF_DEBUG && $output->writeln("<info>[CHILD:{$this->port}]</info> Connection closed by static");
+        $realPath = realpath($settings['document_root'] . $path);
+        if($realPath !== false && strpos($realPath, $settings['document_root']) !== false && (file_exists($realPath) && !is_dir($realPath))) {
+            $response = new ReactResponse(200, [
+                'Content-type' => \GuzzleHttp\Psr7\mimetype_from_filename($realPath),
+                'Content-length' => filesize($realPath),
+            ], file_get_contents($realPath));
+            MPCMF_DEBUG && $this->output->writeln("<info>[CHILD:{$this->port}]</info> Connection closed by static");
 
-            return false;
+            return [
+                'status' => false,
+                'response' => $response,
+                'request' => $request
+            ];
         }
 
         $_FILES = [];
-        foreach($request->getFiles() as $filename => $fileData) {
+        foreach($request->getUploadedFiles() as $filename => $fileData) {
             $tmpname = tempnam('/tmp/mpcmf/', 'upl');
             file_put_contents($tmpname, stream_get_contents($fileData['stream']));
             $_FILES[$filename] = [
@@ -390,7 +415,7 @@ abstract class run
         $_SERVER['REMOTE_PORT'] = 0;
 
         $_SERVER['SERVER_SOFTWARE'] = $serverSoftware;
-        $_SERVER['SERVER_PROTOCOL'] = "HTTP/{$request->getHttpVersion()}";
+        $_SERVER['SERVER_PROTOCOL'] = "HTTP/{$request->getProtocolVersion()}";
         $_SERVER['SERVER_NAME'] = $this->childHost;
         $_SERVER['SERVER_PORT'] = $this->port;
 
@@ -408,21 +433,19 @@ abstract class run
 
         $headers = $request->getHeaders();
         foreach($headers as $headerKey => $headerValue) {
-            $_SERVER['HTTP_' . strtoupper(preg_replace('/[\-\s]/', '_', $headerKey))] = $headerValue;
-        }
-        if(isset($_SERVER['HTTP_X_REAL_IP'])) {
-            $_SERVER['REMOTE_ADDR'] = $_SERVER['HTTP_X_REAL_IP'];
+            $_SERVER['HTTP_' . strtoupper(preg_replace('/[\-\s]/', '_', $headerKey))] = end($headerValue);
         }
 
         $_SERVER['QUERY_STRING'] = $queryString;
 
         //@todo remove on pull request merge https://github.com/reactphp/http/pull/34
-        $_GET = $request->getQuery();
-        $_POST = $request->getPost();
-        parse_str($queryString, $parsedGET);
-        parse_str($request->getBody(), $parsedPOST);
-        $_GET = array_replace($_GET, $parsedGET);
-        $_POST = array_replace($_POST, $parsedPOST);
+        $_GET = $request->getQueryParams();
+        parse_str($content, $_POST);
+
+//        parse_str($queryString, $parsedGET);
+//        parse_str($request->getBody(), $parsedPOST);
+//        $_GET = array_replace($_GET, $parsedGET);
+//        $_POST = array_replace($_POST, $parsedPOST);
 
         if(isset($_SERVER['HTTP_COOKIE'])) {
             parse_str($_SERVER['HTTP_COOKIE'], $_COOKIE);
@@ -432,17 +455,22 @@ abstract class run
 
         $_REQUEST = array_merge($_GET, $_POST);
 
-        return true;
+        return [
+            'status' => true,
+            'response' => null,
+            'request' => $request
+        ];
     }
 
     /**
+     * @param $content
+     *
      * @return webApplicationBase
      *
      * @throws webApplicationException
      */
-    protected function app()
+    protected function app($content)
     {
-        /** @var Slim $slimOriginal */
         static $app, $router;
 
         if($app === null) {
@@ -451,7 +479,7 @@ abstract class run
             $app->beforeBindings();
             $app->processBindings();
             $env = Environment::getInstance();
-            $env['slim.input'] = http_build_query($_POST);
+            $env['slim.input'] = $content;
             $router = clone $app->slim()->router();
         } else {
             /** @var mpcmfWeb $app */
@@ -459,12 +487,19 @@ abstract class run
             $app->beforeBindings();
 
             $env = Environment::getInstance(true);
-            $env['slim.input'] = http_build_query($_POST);
+            $env['slim.input'] = $content;
             $slim = $app->slim();
             unset($slim->request, $slim->response, $slim->router, $slim->environment);
             $slim->request = new Request($env);
             $slim->response = new Response();
+            if(!isset($router)) {
+                $router = $app->slim()->router();
+            }
             $slim->router = clone $router;
+            /** @var Route $route */
+            foreach($slim->router->getNamedRoutes() as $route) {
+                $route->setParams([]);
+            }
             $slim->environment = $env;
         }
 

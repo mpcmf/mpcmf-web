@@ -4,6 +4,7 @@ namespace mpcmf\system\application;
 
 use Composer\Autoload\ClassLoader;
 use mpcmf\loader;
+use mpcmf\modules\authex\models\userModel;
 use mpcmf\modules\moduleBase\actions\action;
 use mpcmf\modules\moduleBase\exceptions\actionException;
 use mpcmf\modules\moduleBase\exceptions\entityException;
@@ -487,6 +488,7 @@ abstract class webApplicationBase
                 $slim->redirect($forbiddenUrl);
                 $slim->stop();
             }
+            /** @var userModel $user */
             $user = $aclManager->getCurrentUser();
             $timeNow = time();
             if (($timeNow - $user->getLastActivity() > self::REFRESH_SESSION_AFTER) && !$user->isGuest()) {
