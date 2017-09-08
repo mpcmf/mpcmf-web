@@ -34,6 +34,7 @@ class userMapper
     const FIELD__GROUPS = 'groups';
     const FIELD__REG_DATE = 'reg_date';
     const FIELD__LAST_VISIT = 'last_visit';
+    const FIELD__LAST_ACTIVITY = 'last_activity';
     const FIELD__REFERER = 'referer';
 
     const INVITE__LIMIT = 10;
@@ -50,6 +51,7 @@ class userMapper
             ],
             self::FIELD__REG_DATE => 0,
             self::FIELD__LAST_VISIT => 0,
+            self::FIELD__LAST_ACTIVITY => 0,
             self::FIELD__REFERER => '',
         ]
     ];
@@ -334,6 +336,26 @@ class userMapper
                     'unique' => false
                 ]
             ],
+            self::FIELD__LAST_ACTIVITY => [
+                'getter' => 'getLastActivity',
+                'setter' => 'setLastActivity',
+                'type' => 'int',
+                'formType' => 'datetimepicker',
+                'name' => 'Последняя активность',
+                'description' => 'Дата последней активности пользователя на сайте',
+                'validator' => [
+                    [
+                        'type' => 'type.check',
+                        'data' => [
+                            'type' => 'numeric'
+                        ]
+                    ]
+                ],
+                'options' => [
+                    'required' => false,
+                    'unique' => false
+                ]
+            ],
             self::FIELD__REFERER => [
                 'getter' => 'getReferer',
                 'setter' => 'setReferer',
@@ -381,7 +403,7 @@ class userMapper
 
                 $groups = sdsAclManager::getInstance()->expandGroupsByCursor($currentUser->getGroups());
                 $relationData = $this->getRelationData($fieldName);
-                
+
                 $criteria = [
                     $relationData['field'] => [
                         '$in' => $groups
