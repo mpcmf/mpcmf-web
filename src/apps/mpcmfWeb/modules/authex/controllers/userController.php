@@ -442,7 +442,7 @@ class userController
 
 <p>You can login with this pass and change it in your profile</p>
 
-<p>Your SDS</p>
+<p>Your MPCMF</p>
 BODY;
 ;
             $this->sendMail([$email], 'Password recovery', $body);
