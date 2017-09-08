@@ -15,7 +15,8 @@
     "require": {
         "mpcmf/mpcmf-console": "dev-master",
         "mpcmf/mpcmf-core": "dev-master",
-        "react/socket-client": "^0.4.0@dev"
+        "react/socket-client": "^0.4.0@dev",
+        "guzzlehttp/psr7": "1.4.2"
     },
     "repositories": [
         {
