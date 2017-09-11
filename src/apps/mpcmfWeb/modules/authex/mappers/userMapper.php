@@ -2,7 +2,6 @@
 
 namespace mpcmf\modules\authex\mappers;
 
-use mpcmf\apps\sds\library\acl\sdsAclManager;
 use mpcmf\system\cache\cache;
 use mpcmf\modules\authex\models\userModel;
 use mpcmf\modules\moduleBase\exceptions\mapperException;
@@ -390,18 +389,21 @@ class userMapper
      */
     protected function relatedMapperCriteria($fieldName, modelBase $model = null)
     {
+        $aclManager = aclManager::getInstance();
+
         /** @noinspection DegradedSwitchInspection */
         switch($fieldName) {
             case self::FIELD__GROUPS:
 
-                $currentUser = aclManager::getInstance()->getCurrentUser();
+                /** @var userModel $currentUser */
+                $currentUser = $aclManager->getCurrentUser();
 
                 if($currentUser->isRoot()) {
                     $criteria = [];
                     break;
                 }
 
-                $groups = sdsAclManager::getInstance()->expandGroupsByCursor($currentUser->getGroups());
+                $groups = $aclManager->expandGroupsByCursor($currentUser->getGroups());
                 $relationData = $this->getRelationData($fieldName);
 
                 $criteria = [
