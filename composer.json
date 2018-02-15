@@ -14,8 +14,8 @@
     ],
     "require": {
         "react/http": "^0.7@dev",
-        "mpcmf/mpcmf-console": "dev-master",
-        "mpcmf/mpcmf-core": "dev-master",
+        "mpcmf/mpcmf-console": "dev-php7",
+        "mpcmf/mpcmf-core": "dev-php7",
         "react/socket-client": "^0.5.0@dev",
         "react/socket": "^0.7@dev",
         "guzzlehttp/psr7": "1.4.2"
