@@ -42,7 +42,7 @@ class defaultTokenManager
             cache::setCached("token/{$tokenString}", (int)$tokenResult, self::VALIDATION_EXPIRE);
         }
 
-        if($tokenResult === 0) {
+        if($tokenResult === false) {
             return self::error([
                 'errors' => [
                     'Invalid access_token given'
