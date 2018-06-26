@@ -72,6 +72,7 @@ class userController
             $userMapper = $this->getMapper();
 
             $item = $request->post('item');
+            $item['email'] = trim($item['email']);
             $item['login'] = $item['email'];
 
             $input = $userMapper->convertDataFromForm($item);
@@ -165,6 +166,7 @@ class userController
 
         if ($request->isPost()) {
             $item = $request->post('item');
+            $item['login'] = trim($item['login']);
 
             $input = $this->getMapper()->convertDataFromForm($item);
 
