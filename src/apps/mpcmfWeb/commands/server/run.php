@@ -17,6 +17,7 @@ use React\EventLoop\Factory;
 use React\Http\Response as reactResponse;
 use React\Http\Server as reactHttpServer;
 use React\Http\ServerRequest;
+use React\Http\UploadedFile;
 use React\Promise\Promise;
 use React\Socket\Connection;
 use React\Socket\Server as reactSocketServer;
@@ -405,13 +406,24 @@ abstract class run
         $_FILES = [];
         foreach($request->getUploadedFiles() as $filename => $fileData) {
             $tmpname = tempnam('/tmp/mpcmf/', 'upl');
-            file_put_contents($tmpname, stream_get_contents($fileData['stream']));
+            if ($fileData instanceof UploadedFile) {
+                $fileContent = $fileData->getStream()->getContents();
+                $type = $fileData->getClientMediaType();
+                $error = $fileData->getError();
+                $size = $fileData->getSize();
+            } else {
+                $fileContent = stream_get_contents($fileData['stream']);
+                $type = $fileData['type'];
+                $error = $fileData['error'];
+                $size = $fileData['size'];
+            }
+            file_put_contents($tmpname, $fileContent);
             $_FILES[$filename] = [
                 'name' => $filename,
-                'type' => $fileData['type'],
+                'type' => $type,
                 'tmp_name' => $tmpname,
-                'error' => $fileData['error'],
-                'size' => $fileData['size'],
+                'error' => $error,
+                'size' => $size,
             ];
         }
 
