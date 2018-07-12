@@ -3,6 +3,7 @@
 namespace mpcmf\apps\mpcmfWeb\commands\server;
 
 use GuzzleHttp\Psr7\Uri;
+use mpcmf\apps\mpcmfWeb\libraries\io\multipartParser;
 use mpcmf\apps\mpcmfWeb\mpcmfWeb;
 use mpcmf\system\application\applicationInstance;
 use mpcmf\system\application\consoleCommandBase;
@@ -396,6 +397,11 @@ abstract class run
             ];
         }
 
+
+        // Remove multipartParser after swith on 0.8 version of react/http
+        $multipartParser = new multipartParser(null, 10);
+        $request = $multipartParser->parse($request, $content);
+
         $_FILES = [];
         foreach($request->getUploadedFiles() as $filename => $fileData) {
             $tmpname = tempnam('/tmp/mpcmf/', 'upl');
@@ -441,7 +447,13 @@ abstract class run
 
         //@todo remove on pull request merge https://github.com/reactphp/http/pull/34
         $_GET = $request->getQueryParams();
-        parse_str($content, $_POST);
+
+        $contentType = $request->getHeaderLine('content-type');
+        if(!preg_match('/boundary="?(.*)"?$/', $contentType, $matches)) {
+            parse_str($content, $_POST);
+        } else {
+            $_POST = $request->getParsedBody();
+        }
 
 //        parse_str($queryString, $parsedGET);
 //        parse_str($request->getBody(), $parsedPOST);
