@@ -136,8 +136,6 @@ final class multipartParser
         $this->emptyCount = 0;
         $this->maxFileSize = null;
 
-        var_dump($this->postCount, $this->filesCount, $this->emptyCount, $this->maxFileSize);
-
         return $request;
     }
 
@@ -158,7 +156,6 @@ final class multipartParser
             }
 
             // parse one part and continue searching for next
-            var_dump('parsePart');
             $this->parsePart(substr($buffer, $start, $end - $start));
             $start = $end;
         }
