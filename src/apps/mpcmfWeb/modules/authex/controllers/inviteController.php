@@ -30,7 +30,8 @@ class inviteController
     {
         try {
             inviteMapper::getInstance()->getBy([
-                inviteMapper::FIELD__INVITE => $invite
+                inviteMapper::FIELD__INVITE => $invite,
+                inviteMapper::FIELD__USED => false,
             ]);
         } catch (mapperException $mapperException) {
             $message = $mapperException->getMessage();
