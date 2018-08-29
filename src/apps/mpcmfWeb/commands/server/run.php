@@ -3,6 +3,7 @@
 namespace mpcmf\apps\mpcmfWeb\commands\server;
 
 use GuzzleHttp\Psr7\Uri;
+use mpcmf\apps\mpcmfWeb\libraries\io\multipartParser;
 use mpcmf\apps\mpcmfWeb\mpcmfWeb;
 use mpcmf\system\application\applicationInstance;
 use mpcmf\system\application\consoleCommandBase;
@@ -16,6 +17,7 @@ use React\EventLoop\Factory;
 use React\Http\Response as reactResponse;
 use React\Http\Server as reactHttpServer;
 use React\Http\ServerRequest;
+use React\Http\UploadedFile;
 use React\Promise\Promise;
 use React\Socket\Connection;
 use React\Socket\Server as reactSocketServer;
@@ -396,16 +398,32 @@ abstract class run
             ];
         }
 
+
+        // Remove multipartParser after swith on 0.8 version of react/http
+        $multipartParser = new multipartParser(null, 10);
+        $request = $multipartParser->parse($request, $content);
+
         $_FILES = [];
         foreach($request->getUploadedFiles() as $filename => $fileData) {
             $tmpname = tempnam('/tmp/mpcmf/', 'upl');
-            file_put_contents($tmpname, stream_get_contents($fileData['stream']));
+            if ($fileData instanceof UploadedFile) {
+                $fileContent = $fileData->getStream()->getContents();
+                $type = $fileData->getClientMediaType();
+                $error = $fileData->getError();
+                $size = $fileData->getSize();
+            } else {
+                $fileContent = stream_get_contents($fileData['stream']);
+                $type = $fileData['type'];
+                $error = $fileData['error'];
+                $size = $fileData['size'];
+            }
+            file_put_contents($tmpname, $fileContent);
             $_FILES[$filename] = [
                 'name' => $filename,
-                'type' => $fileData['type'],
+                'type' => $type,
                 'tmp_name' => $tmpname,
-                'error' => $fileData['error'],
-                'size' => $fileData['size'],
+                'error' => $error,
+                'size' => $size,
             ];
         }
 
@@ -441,7 +459,13 @@ abstract class run
 
         //@todo remove on pull request merge https://github.com/reactphp/http/pull/34
         $_GET = $request->getQueryParams();
-        parse_str($content, $_POST);
+
+        $contentType = $request->getHeaderLine('content-type');
+        if(!preg_match('/boundary="?(.*)"?$/', $contentType, $matches)) {
+            parse_str($content, $_POST);
+        } else {
+            $_POST = $request->getParsedBody();
+        }
 
 //        parse_str($queryString, $parsedGET);
 //        parse_str($request->getBody(), $parsedPOST);
