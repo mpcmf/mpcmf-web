@@ -23,6 +23,8 @@ use mpcmf\system\pattern\singleton;
  * @method $this setMongoId(string $value) Mongo ID
  * @method string getToken() Token string
  * @method $this setToken(string $value) Token string
+ * @method string getRefreshToken() Refresh token string
+ * @method $this setRefreshToken(string $value) Refresh token string
  * @method int getLimit() Limit per hour
  * @method $this setLimit(int $value) Limit per hour
  * @method int getExpire() When token would be expired

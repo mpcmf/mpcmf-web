@@ -203,5 +203,24 @@ class userActions
                 aclManager::ACL__GROUP_ADMIN
             ]
         ], $this));
+
+        $this->registerAction('api.oauth.token', new action([
+            'name' => 'oAuth',
+            'method' => '_oauthToken',
+            'path' => '/oauth/token',
+            'http' => [
+                'POST',
+            ],
+            'required' => [
+            ],
+            'template' => 'json.tpl',
+            'useBase' => false,
+            'relative' => false,
+            'type' => action::TYPE__API_FREE_ACCESS,
+            'acl' => [
+                aclManager::ACL__GROUP_GUEST,
+                aclManager::ACL__GROUP_USER,
+            ]
+        ], $this));
     }
 }

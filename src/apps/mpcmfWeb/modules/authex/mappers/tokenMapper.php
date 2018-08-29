@@ -32,8 +32,10 @@ class tokenMapper
     const FIELD__ACTIVITY = 'activity';
     const FIELD__REQUESTS = 'requests';
     const FIELD__USER = 'user';
+    const FIELD__REFRESH_TOKEN = 'refresh_token';
 
     const DEFAULT_LIMIT = 20000;
+    const DEFAULT_EXPIRE_TIME = 3600;
 
     public function getPublicName()
     {
@@ -87,6 +89,28 @@ class tokenMapper
                 'options' => [
                   'required' => false,
                   'unique' => true,
+                ],
+            ],
+            self::FIELD__REFRESH_TOKEN => [
+                'getter' => 'getRefreshToken',
+                'setter' => 'setRefreshToken',
+                'role' => [
+                ],
+                'name' => 'Refresh Token string',
+                'description' => 'Refresh Token string',
+                'type' => 'string',
+                'formType' => 'text',
+                'validator' => [
+                    [
+                        'type' => 'type.check',
+                        'data' => [
+                            'type' => 'string'
+                        ]
+                    ],
+                ],
+                'options' => [
+                    'required' => false,
+                    'unique' => true,
                 ],
             ],
             self::FIELD__UNLIMITED => [
