@@ -470,8 +470,30 @@ abstract class webApplicationBase
         $jsonPretty = $request->get(self::REQUEST__JSON_PRETTY, false);
         $jsonTemplate = $jsonPretty ? 'json.pretty.tpl' : 'json.tpl';
 
+        if ($isJson) {
+            $slim->response()->header('Content-type', 'application/json');
+        }
+
         if($isApiRequest) {
-            $aclResponse = $aclManager->checkActionAccessByToken($action, $request->get('access_token'));
+            $authorizationHeader = $request->headers('Authorization');
+            if ($authorizationHeader !== null) {
+                list($tokenType, $accessToken) = preg_split('/\s+/', trim($authorizationHeader));
+                if ($tokenType !== 'Bearer') {
+                    $slim->render($jsonTemplate, [
+                        'data' => [
+                            'status' => false,
+                            'errors' => [
+                                "Unsupported token type: {$tokenType}"
+                            ]
+                        ]
+                    ]);
+                    $slim->stop();
+                }
+            } else {
+                $accessToken = $request->get('access_token');
+            }
+
+            $aclResponse = $aclManager->checkActionAccessByToken($action, $accessToken);
             if(!$aclResponse['status']) {
                 $slim->render($jsonTemplate, [
                     'data' => $aclResponse
