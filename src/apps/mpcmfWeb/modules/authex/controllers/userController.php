@@ -612,10 +612,15 @@ BODY;
      */
     public function _oauthToken()
     {
-        $request = $this->getSlim()->request();
+        $slim = $this->getSlim();
+        $request = $slim->request();
+
         if (!$request->isPost()) {
             return self::error([]);
         }
+
+        $slim->response()->header('Cache-Control', 'no-store');
+        $slim->response()->header('Pragma', 'no-cache');
 
         $grantType = $request->post('grant_type');
 
@@ -764,6 +769,7 @@ BODY;
 
         $response = [
             'access_token' => $tokenString,
+            'token_type' => 'bearer',
             'expires_in' => tokenMapper::DEFAULT_EXPIRE_TIME
         ];
 
