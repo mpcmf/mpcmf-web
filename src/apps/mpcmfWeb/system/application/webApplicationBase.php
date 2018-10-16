@@ -275,6 +275,24 @@ abstract class webApplicationBase
     abstract protected function afterApplication();
 
     /**
+     * Do something before action execution starts
+     *
+     * @param action $action
+     *
+     * @return void
+     */
+    abstract protected function beforeActionExecution(action $action);
+
+    /**
+     * Do something after action execution ends
+     *
+     * @param action $action
+     *
+     * @return void
+     */
+    abstract protected function afterActionExecution(action $action);
+
+    /**
      * Run web application
      *
      * @param bool $processBindings
@@ -521,7 +539,9 @@ abstract class webApplicationBase
         }
 
         try {
+            $this->beforeActionExecution($action);
             $result = call_user_func_array($action->getCallable(), $arguments);
+            $this->afterActionExecution($action);
         } catch(actionException $actionException) {
             throw new webApplicationException("Action exception: {$actionException->getMessage()}", $actionException->getCode(), $actionException);
         }
