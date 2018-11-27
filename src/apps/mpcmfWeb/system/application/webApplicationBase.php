@@ -281,7 +281,7 @@ abstract class webApplicationBase
      *
      * @return void
      */
-    abstract protected function beforeActionExecution(action $action);
+    protected function beforeActionExecution(action $action) { }
 
     /**
      * Do something after action execution ends
@@ -290,7 +290,7 @@ abstract class webApplicationBase
      *
      * @return void
      */
-    abstract protected function afterActionExecution(action $action);
+    protected function afterActionExecution(action $action) { }
 
     /**
      * Run web application
