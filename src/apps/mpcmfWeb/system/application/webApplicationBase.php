@@ -486,6 +486,7 @@ abstract class webApplicationBase
 
         $isJson = $request->get(self::REQUEST__JSON, false) || $isApiRequest;
         $jsonPretty = $request->get(self::REQUEST__JSON_PRETTY, false);
+        $jsonFlag = $jsonPretty ? JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE : 0;
 
         if ($isJson) {
             $slim->response()->header('Content-type', 'application/json');
@@ -501,7 +502,7 @@ abstract class webApplicationBase
                         'errors' => [
                             "Unsupported token type: {$tokenType}"
                         ]
-                    ], $jsonPretty ? 384 : 0);
+                    ], $jsonFlag);
                     $slim->stop();
                 }
             } else {
@@ -510,7 +511,7 @@ abstract class webApplicationBase
 
             $aclResponse = $aclManager->checkActionAccessByToken($action, $accessToken);
             if(!$aclResponse['status']) {
-                echo json_encode($aclResponse, $jsonPretty ? 384 : 0);
+                echo json_encode($aclResponse, $jsonFlag);
                 $slim->stop();
             }
         } else {
@@ -559,7 +560,7 @@ abstract class webApplicationBase
                     $item = $item->export();
                 }
             });
-            echo json_encode($result, $jsonPretty ? 384 : 0);
+            echo json_encode($result, $jsonFlag);
         } else {
             try {
                 $result['_entity'] = $action->getEntityActions()->getEntity();
