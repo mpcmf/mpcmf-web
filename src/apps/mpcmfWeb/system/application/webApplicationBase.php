@@ -486,7 +486,6 @@ abstract class webApplicationBase
 
         $isJson = $request->get(self::REQUEST__JSON, false) || $isApiRequest;
         $jsonPretty = $request->get(self::REQUEST__JSON_PRETTY, false);
-        $jsonTemplate = $jsonPretty ? 'json.pretty.tpl' : 'json.tpl';
 
         if ($isJson) {
             $slim->response()->header('Content-type', 'application/json');
@@ -497,14 +496,12 @@ abstract class webApplicationBase
             if ($authorizationHeader !== null) {
                 list($tokenType, $accessToken) = preg_split('/\s+/', trim($authorizationHeader));
                 if ($tokenType !== 'Bearer') {
-                    $slim->render($jsonTemplate, [
-                        'data' => [
-                            'status' => false,
-                            'errors' => [
-                                "Unsupported token type: {$tokenType}"
-                            ]
+                    echo json_encode([
+                        'status' => false,
+                        'errors' => [
+                            "Unsupported token type: {$tokenType}"
                         ]
-                    ]);
+                    ], $jsonPretty ? 384 : 0);
                     $slim->stop();
                 }
             } else {
@@ -513,9 +510,7 @@ abstract class webApplicationBase
 
             $aclResponse = $aclManager->checkActionAccessByToken($action, $accessToken);
             if(!$aclResponse['status']) {
-                $slim->render($jsonTemplate, [
-                    'data' => $aclResponse
-                ]);
+                echo json_encode($aclResponse, $jsonPretty ? 384 : 0);
                 $slim->stop();
             }
         } else {
@@ -547,7 +542,7 @@ abstract class webApplicationBase
         }
 
         if($isApiRequest) {
-            echo json_encode($result);
+            echo json_encode($result, $jsonPretty ? 384 : 0);
             $slim->stop();
         } elseif($isJson) {
             array_walk_recursive($result, function(&$item) {
@@ -564,7 +559,7 @@ abstract class webApplicationBase
                     $item = $item->export();
                 }
             });
-            $slim->render($jsonTemplate, ['data' => $result]);
+            echo json_encode($result, $jsonPretty ? 384 : 0);
         } else {
             try {
                 $result['_entity'] = $action->getEntityActions()->getEntity();
