@@ -543,7 +543,7 @@ abstract class webApplicationBase
         }
 
         if($isApiRequest) {
-            echo json_encode($result, $jsonPretty ? 384 : 0);
+            echo json_encode($result, $jsonFlag);
             $slim->stop();
         } elseif($isJson) {
             array_walk_recursive($result, function(&$item) {
