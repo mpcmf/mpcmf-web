@@ -497,12 +497,13 @@ abstract class webApplicationBase
             if ($authorizationHeader !== null) {
                 list($tokenType, $accessToken) = preg_split('/\s+/', trim($authorizationHeader));
                 if ($tokenType !== 'Bearer') {
-                    echo json_encode([
+                    $body = json_encode([
                         'status' => false,
                         'errors' => [
                             "Unsupported token type: {$tokenType}"
                         ]
                     ], $jsonFlag);
+                    $slim->response()->write($body);
                     $slim->stop();
                 }
             } else {
@@ -511,7 +512,7 @@ abstract class webApplicationBase
 
             $aclResponse = $aclManager->checkActionAccessByToken($action, $accessToken);
             if(!$aclResponse['status']) {
-                echo json_encode($aclResponse, $jsonFlag);
+                $slim->response()->write(json_encode($aclResponse, $jsonFlag));
                 $slim->stop();
             }
         } else {
@@ -543,7 +544,7 @@ abstract class webApplicationBase
         }
 
         if($isApiRequest) {
-            echo json_encode($result, $jsonFlag);
+            $slim->response()->write(json_encode($result, $jsonFlag));
             $slim->stop();
         } elseif($isJson) {
             array_walk_recursive($result, function(&$item) {
@@ -560,7 +561,7 @@ abstract class webApplicationBase
                     $item = $item->export();
                 }
             });
-            echo json_encode($result, $jsonFlag);
+            $slim->response()->write(json_encode($result, $jsonFlag));
         } else {
             try {
                 $result['_entity'] = $action->getEntityActions()->getEntity();
