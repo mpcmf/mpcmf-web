@@ -41,7 +41,9 @@ use Symfony\Component\Console\Output\OutputInterface;
 abstract class run
     extends consoleCommandBase
 {
-    const MAX_MEMORY_USAGE = 500;
+    protected $maxMemoryUsage = 838860800; //800MiB
+
+    protected $oomKillerEnabled = false;
 
     /** @var applicationInstance */
     private $applicationInstance;
@@ -274,21 +276,33 @@ abstract class run
         $loop = Factory::create();
         $socket = new reactSocketServer("{$this->childHost}:{$this->port}", $loop);
         $socket->pause();
-        $http = new reactHttpServer(function (ServerRequest $request) {
+        $http = new reactHttpServer(function (ServerRequest $request) use ($socket) {
+            // @HACK for get client address (reflection hack)
+            /** @var ReadableStreamInterface $requestInput */
+            $requestInput = $request->getBody()->input;
+            $thief = function (ReadableStreamInterface $reflectionClass) {
+                $connection = isset($reflectionClass->input) ? $reflectionClass->input : $reflectionClass->stream->input;
+
+                return $connection instanceof Connection ? $connection : $connection->input;
+            };
+            $thief = \Closure::bind($thief, null, $requestInput);
+            // @HACK for get client address (reflection hack)
+
+            $connection = $thief($requestInput);
+            if ($this->oomKillerEnabled) {
+                $connection->on('close', function($connection) use ($socket) {
+                    $memoryUsage = memory_get_usage(true);
+                    if ($memoryUsage > $this->maxMemoryUsage) {
+                        $this->output->writeln("Child stopped, cuz exceed memory limit ({$memoryUsage})");
+
+                        $socket->close();
+                    }
+                });
+            }
+
             if(MPCMF_DEBUG) {
-                // @HACK for get client address (reflection hack)
-                /** @var ReadableStreamInterface $requestInput */
-                $requestInput = $request->getBody()->input;
-                $thief = function (ReadableStreamInterface $reflectionClass) {
-                    $connection = isset($reflectionClass->input) ? $reflectionClass->input : $reflectionClass->stream->input;
-
-                    return $connection instanceof Connection ? $connection : $connection->input;
-                };
-                $thief = \Closure::bind($thief, null, $requestInput);
-                // @HACK for get client address (reflection hack)
-
                 $this->output->writeln("<info>[CHILD:{$this->port}]</info> New connection");
-                $clientName = $thief($requestInput)->getRemoteAddress() . '#' . spl_object_hash($request);
+                $clientName = $connection->getRemoteAddress() . '#' . spl_object_hash($request);
                 $this->output->writeln("<info>[{$clientName}] Client connected");
             }
 
@@ -485,6 +499,22 @@ abstract class run
             'response' => null,
             'request' => $request
         ];
+    }
+
+    /**
+     * @param int $maxMemoryUsage
+     */
+    public function setMaxMemoryUsage($maxMemoryUsage)
+    {
+        $this->maxMemoryUsage = $maxMemoryUsage;
+    }
+
+    /**
+     * @param bool $oomKillerEnabled
+     */
+    public function setOomKillerEnabled($oomKillerEnabled)
+    {
+        $this->oomKillerEnabled = $oomKillerEnabled;
     }
 
     /**
