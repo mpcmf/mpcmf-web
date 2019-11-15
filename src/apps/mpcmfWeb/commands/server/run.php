@@ -44,6 +44,7 @@ abstract class run
     protected $maxMemoryUsage = 838860800; //800MiB
 
     protected $oomKillerEnabled = false;
+    protected $checkThreadsTimerInterval = 1.0;
 
     /** @var applicationInstance */
     private $applicationInstance;
@@ -57,6 +58,14 @@ abstract class run
 
     /** @var OutputInterface */
     private $output;
+
+    /**
+     * @param float $checkThreadsTimerInterval
+     */
+    public function setCheckThreadsTimerInterval($checkThreadsTimerInterval)
+    {
+        $this->checkThreadsTimerInterval = $checkThreadsTimerInterval;
+    }
 
     /**
      * Define arguments
@@ -254,7 +263,7 @@ abstract class run
 
         $output->writeln("<error>[MASTER]</error> Starting server on {$bindMasterTo['host']}:{$bindMasterTo['port']}");
 
-        $loop->addPeriodicTimer(1.0, [$this, 'checkThreads']);
+        $loop->addPeriodicTimer($this->checkThreadsTimerInterval, [$this, 'checkThreads']);
         $loop->run();
     }
 
