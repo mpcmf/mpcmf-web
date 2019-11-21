@@ -118,7 +118,7 @@ abstract class run
         } else {
             for(;;) {
                 $this->checkThreads();
-                sleep(1);
+                usleep($this->checkThreadsTimerInterval * 1000000);
             }
         }
     }
@@ -133,7 +133,7 @@ abstract class run
                 } catch(\Exception $e) {
                     error_log("Unable to start server, cuz exception: {$e->getMessage()}\n{$e->getTraceAsString()}");
                 }
-                usleep(250000);
+                usleep(10000);
             }
         }
     }
