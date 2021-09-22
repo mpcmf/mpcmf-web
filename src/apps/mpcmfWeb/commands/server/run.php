@@ -353,9 +353,9 @@ abstract class run
                         $serverSoftware = 'MPCMF Async PHP ' . phpversion();
                     }
 
-                    if (array_key_exists('HTTP_ACCEPT_ENCODING', $_SERVER) && strpos($_SERVER['HTTP_ACCEPT_ENCODING'][0], 'gzip') !== false) {
+                    if (array_key_exists('HTTP_ACCEPT_ENCODING', $_SERVER) && strpos($_SERVER['HTTP_ACCEPT_ENCODING'], 'gzip') !== false) {
                         $content[1]['Content-Encoding'] = 'gzip';
-                        $content[2] = gzencode($content[2], 9);
+                        $content[2] = gzencode($content[2], 6);
                     }
 
                     $content[1]['X-PHP-Server'] = $serverSoftware;
