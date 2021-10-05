@@ -339,7 +339,10 @@ abstract class run
                         $this->applicationInstance->setApplication($app);
                         $slim->call();
                     } catch(\Exception $e) {
-                        $resolve(new reactResponse(500, [], "Exception: {$e->getMessage()} in {$e->getFile()}:{$e->getLine()}\n{$e->getTraceAsString()}"));
+                        $errorMessage = "Exception: {$e->getMessage()} in {$e->getFile()}:{$e->getLine()}\n{$e->getTraceAsString()}";
+                        $this->output->writeln("<error>[CHILD:{$this->port}]</error> {$errorMessage}");
+                        $resolve(new reactResponse(500, [], $errorMessage));
+
                         return;
                     }
 
