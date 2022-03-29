@@ -488,7 +488,7 @@ abstract class webApplicationBase
         $jsonPretty = $request->get(self::REQUEST__JSON_PRETTY, false);
         $jsonFlag = $jsonPretty ? JSON_PRETTY_PRINT|JSON_UNESCAPED_UNICODE : 0;
 
-        if ($isJson) {
+        if ($isJson || $action->getType() === action::TYPE__API_FREE_ACCESS) {
             $slim->response()->header('Content-type', 'application/json');
         }
 
