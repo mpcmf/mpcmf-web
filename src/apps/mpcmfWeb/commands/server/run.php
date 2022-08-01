@@ -363,6 +363,11 @@ abstract class run
 
                     $content[1]['X-PHP-Server'] = $serverSoftware;
                     $content[1]['X-PHP-Server-Addr'] = "{$this->childHost}:{$this->port}";
+
+                    if (isset($content[1]['Set-Cookie']) && is_string($content[1]['Set-Cookie']) && strpos($content[1]['Set-Cookie'], "\n") !== false) {
+                        $content[1]['Set-Cookie'] = explode("\n", $content[1]['Set-Cookie']);
+                    }
+
                     $response = new ReactResponse($content[0], $content[1], $content[2]);
                     MPCMF_DEBUG && $this->output->writeln("<info>[CHILD:{$this->port}]</info> Connection closed");
 
