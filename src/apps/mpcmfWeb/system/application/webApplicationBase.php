@@ -93,7 +93,7 @@ abstract class webApplicationBase
         $appKey = get_called_class();
         if(!isset($namespace[$appKey])) {
             $namespace[$appKey] = (new \ReflectionClass($appKey))->getNamespaceName();
-            MPCMF_DEBUG && self::log()->addDebug("Web application namespace: {$namespace[$appKey]}");
+            MPCMF_LL_DEBUG && self::log()->addDebug("Web application namespace: {$namespace[$appKey]}");
         }
 
         return $namespace[$appKey];
@@ -124,11 +124,11 @@ abstract class webApplicationBase
                     if ($moduleName[0] === '.') {
                         continue;
                     }
-                    MPCMF_DEBUG && self::log()->addDebug("Module found: {$moduleName}");
+                    MPCMF_LL_DEBUG && self::log()->addDebug("Module found: {$moduleName}");
                     /** @var moduleBase $class */
                     $class = "\\mpcmf\\modules\\{$moduleName}\\module";
                     if (!class_exists($class)) {
-                        MPCMF_DEBUG && self::log()->addDebug("Skipping module without base class: {$class}");
+                        MPCMF_LL_DEBUG && self::log()->addDebug("Skipping module without base class: {$class}");
                         continue;
                     }
                     $moduleDirs[$moduleName] = $class;
@@ -144,7 +144,7 @@ abstract class webApplicationBase
             }
         }
 
-        MPCMF_DEBUG && self::log()->addDebug('Modules loaded. Total: ' . count($modules[$appKey]));
+        MPCMF_LL_DEBUG && self::log()->addDebug('Modules loaded. Total: ' . count($modules[$appKey]));
 
         return $modules[$appKey];
     }
@@ -199,7 +199,7 @@ abstract class webApplicationBase
                 try {
                     foreach ($this->getAllModules() as $module) {
                         $templateDirectory = $module->getTemplatesDirectory();
-                        MPCMF_DEBUG && self::log()->addDebug("Registering template directory: {$templateDirectory}");
+                        MPCMF_LL_DEBUG && self::log()->addDebug("Registering template directory: {$templateDirectory}");
                         $directories[$appKey][] = $templateDirectory;
                     }
                 } catch (moduleException $moduleException) {
@@ -208,21 +208,21 @@ abstract class webApplicationBase
 
                 $defaultApplicationDirectory = $this->getApplicationDirectory() . '/templates';
                 if (file_exists($defaultApplicationDirectory) && is_dir($defaultApplicationDirectory)) {
-                    MPCMF_DEBUG && self::log()->addDebug("Registering application template directory: {$defaultApplicationDirectory}");
+                    MPCMF_LL_DEBUG && self::log()->addDebug("Registering application template directory: {$defaultApplicationDirectory}");
                     $directories[$appKey][] = $defaultApplicationDirectory;
                 } else {
-                    MPCMF_DEBUG && self::log()->addNotice("Application template directory not exists: {$defaultApplicationDirectory}");
+                    MPCMF_LL_DEBUG && self::log()->addNotice("Application template directory not exists: {$defaultApplicationDirectory}");
                 }
 
                 $defaultSystemDirectory = CORE_ROOT . self::DEFAULT_TEMPLATES_DIRECTORY;
                 if (file_exists($defaultSystemDirectory) && is_dir($defaultSystemDirectory)) {
-                    MPCMF_DEBUG && self::log()->addDebug("Registering system template directory: {$defaultSystemDirectory}");
+                    MPCMF_LL_DEBUG && self::log()->addDebug("Registering system template directory: {$defaultSystemDirectory}");
                     $directories[$appKey][] = $defaultSystemDirectory;
                 } else {
-                    MPCMF_DEBUG && self::log()->addNotice("System template directory not exists: {$defaultSystemDirectory}");
+                    MPCMF_LL_DEBUG && self::log()->addNotice("System template directory not exists: {$defaultSystemDirectory}");
                 }
 
-                MPCMF_DEBUG && self::log()->addDebug('Templates directories loaded. Total: ' . count($directories));
+                MPCMF_LL_DEBUG && self::log()->addDebug('Templates directories loaded. Total: ' . count($directories));
 
                 cache::setCached($cacheKey, $directories[$appKey]);
             }
@@ -304,19 +304,19 @@ abstract class webApplicationBase
     {
         profiler::addStack('app::run');
 
-        MPCMF_DEBUG && self::log()->addDebug('Before bindings call...');
+        MPCMF_LL_DEBUG && self::log()->addDebug('Before bindings call...');
         $this->beforeBindings();
         if($processBindings) {
-            MPCMF_DEBUG && self::log()->addDebug('Processing bindings...');
+            MPCMF_LL_DEBUG && self::log()->addDebug('Processing bindings...');
             $this->processBindings();
         }
-        MPCMF_DEBUG && self::log()->addDebug('Before web application call...');
+        MPCMF_LL_DEBUG && self::log()->addDebug('Before web application call...');
         $this->beforeApplication();
-        MPCMF_DEBUG && self::log()->addDebug('Web application starts...');
+        MPCMF_LL_DEBUG && self::log()->addDebug('Web application starts...');
 
         $this->slim()->run();
 
-        MPCMF_DEBUG && self::log()->addDebug('Web application ends...');
+        MPCMF_LL_DEBUG && self::log()->addDebug('Web application ends...');
         $this->afterApplication();
     }
 
@@ -345,7 +345,7 @@ abstract class webApplicationBase
             $routes = [];
             foreach ($this->getAllModules() as $module) {
                 foreach ($module->getModuleRoutes()->getRoutes() as $routeName => $routeParams) {
-                    MPCMF_DEBUG && self::log()->addDebug("Binding route `{$routeName}`");
+                    MPCMF_LL_DEBUG && self::log()->addDebug("Binding route `{$routeName}`");
                     $routes[$routeName] = $routeParams;
                 }
             }
@@ -410,12 +410,12 @@ abstract class webApplicationBase
         /** @var action $action */
         $action = $routeParams['action'];
 
-        MPCMF_DEBUG && self::log()->addDebug("Mapping route `{$route}` to " . $action->getTemplate());
+        MPCMF_LL_DEBUG && self::log()->addDebug("Mapping route `{$route}` to " . $action->getTemplate());
 
         $route = $slim[$appKey]->map("{$route}", function() use ($action) {
             $this->dispatch($action, func_get_args());
         })->via($action->getHttp());
-        MPCMF_DEBUG && self::log()->addDebug('Route is accessible via ' . implode(', ', $action->getHttp()));
+        MPCMF_LL_DEBUG && self::log()->addDebug('Route is accessible via ' . implode(', ', $action->getHttp()));
         $route->conditions($action->getRequired());
         $route->setName($routeName);
     }
@@ -628,7 +628,7 @@ abstract class webApplicationBase
         profiler::addStack('app::render');
         MPCMF_LL_DEBUG && self::log()->addDebug(__METHOD__ . '(' . json_encode(func_get_args(), 320) . ')');
 
-        MPCMF_DEBUG && self::log()->addDebug('Rendering: ' . json_encode(func_get_args()));
+        MPCMF_LL_DEBUG && self::log()->addDebug('Rendering: ' . json_encode(func_get_args()));
         $matchedRoutes = $this->slim()->router()->getMatchedRoutes($method, $path . ($params ? ('?' . http_build_query($params)) : ''), true);
         /** @var Route $route */
         $route = reset($matchedRoutes);
