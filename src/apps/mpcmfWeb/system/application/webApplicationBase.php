@@ -496,7 +496,7 @@ abstract class webApplicationBase
         if($isApiRequest) {
             $authorizationHeader = $request->headers('Authorization');
             if ($authorizationHeader !== null) {
-                [$tokenType, $accessToken] = preg_split('/\s+/', trim($authorizationHeader));
+                list($tokenType, $accessToken) = preg_split('/\s+/', trim($authorizationHeader));
                 if ($tokenType !== 'Bearer') {
                     $body = json_encode([
                         'status' => false,
