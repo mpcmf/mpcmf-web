@@ -337,7 +337,7 @@ abstract class run
                         $slim = $app->slim();
                         $originApplication = $this->applicationInstance->getCurrentApplication();
                         $this->applicationInstance->setApplication($app);
-                        $slim->call();
+                        [$status, $headers, $body] = $slim->runRaw();
                     } catch(\Exception $e) {
                         $errorMessage = "Exception: {$e->getMessage()} in {$e->getFile()}:{$e->getLine()}\n{$e->getTraceAsString()}";
                         $this->output->writeln("<error>[CHILD:{$this->port}]</error> {$errorMessage}");
@@ -346,9 +346,7 @@ abstract class run
                         return;
                     }
 
-                    $content = $slim->response->finalize();
-                    \Slim\Http\Util::serializeCookies($content[1], $slim->response->cookies, $slim->settings);
-                    $content[1] = $content[1]->all();
+                    $headers = $headers->all();
                     $this->applicationInstance->setApplication($originApplication);
 
                     static $serverSoftware;
@@ -357,18 +355,18 @@ abstract class run
                     }
 
                     if (array_key_exists('HTTP_ACCEPT_ENCODING', $_SERVER) && strpos($_SERVER['HTTP_ACCEPT_ENCODING'], 'gzip') !== false) {
-                        $content[1]['Content-Encoding'] = 'gzip';
-                        $content[2] = gzencode($content[2], 6);
+                        $headers['Content-Encoding'] = 'gzip';
+                        $body = gzencode($body, 6);
                     }
 
-                    $content[1]['X-PHP-Server'] = $serverSoftware;
-                    $content[1]['X-PHP-Server-Addr'] = "{$this->childHost}:{$this->port}";
+                    $headers['X-PHP-Server'] = $serverSoftware;
+                    $headers['X-PHP-Server-Addr'] = "{$this->childHost}:{$this->port}";
 
-                    if (isset($content[1]['Set-Cookie']) && is_string($content[1]['Set-Cookie']) && strpos($content[1]['Set-Cookie'], "\n") !== false) {
-                        $content[1]['Set-Cookie'] = explode("\n", $content[1]['Set-Cookie']);
+                    if (isset($headers['Set-Cookie']) && is_string($headers['Set-Cookie']) && strpos($headers['Set-Cookie'], "\n") !== false) {
+                        $headers['Set-Cookie'] = explode("\n", $headers['Set-Cookie']);
                     }
 
-                    $response = new ReactResponse($content[0], $content[1], $content[2]);
+                    $response = new ReactResponse($status, $headers, $body);
                     MPCMF_DEBUG && $this->output->writeln("<info>[CHILD:{$this->port}]</info> Connection closed");
 
                     $resolve($response);
