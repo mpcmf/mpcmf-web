@@ -492,7 +492,9 @@ abstract class run
         $_GET = $request->getQueryParams();
 
         $contentType = $request->getHeaderLine('content-type');
-        if(!preg_match('/boundary="?(.*)"?$/', $contentType, $matches)) {
+        if (mb_stripos($contentType, 'application/json') !== false) {
+            $_POST = [];
+        } elseif (!preg_match('/boundary="?(.*)"?$/', $contentType, $matches)) {
             parse_str($content, $_POST);
         } else {
             $_POST = $request->getParsedBody();
