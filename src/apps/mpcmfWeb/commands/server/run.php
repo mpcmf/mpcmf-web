@@ -337,7 +337,7 @@ abstract class run
                         $slim = $app->slim();
                         $originApplication = $this->applicationInstance->getCurrentApplication();
                         $this->applicationInstance->setApplication($app);
-                        list($status, $headers, $body) = $slim->runRaw();
+                        [$status, $headers, $body] = $slim->runRaw();
                     } catch(\Exception $e) {
                         $errorMessage = "Exception: {$e->getMessage()} in {$e->getFile()}:{$e->getLine()}\n{$e->getTraceAsString()}";
                         $this->output->writeln("<error>[CHILD:{$this->port}]</error> {$errorMessage}");
@@ -346,8 +346,6 @@ abstract class run
                         return;
                     }
 
-                    //$content = $slim->response->finalize();
-                    //\Slim\Http\Util::serializeCookies($content[1], $slim->response->cookies, $slim->settings);
                     $headers = $headers->all();
                     $this->applicationInstance->setApplication($originApplication);
 
