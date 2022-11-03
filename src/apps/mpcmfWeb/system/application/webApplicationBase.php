@@ -20,6 +20,7 @@ use mpcmf\system\helper\i18n\i18n;
 use mpcmf\system\helper\module\exception\modulePartsHelperException;
 use mpcmf\system\helper\system\profiler;
 use mpcmf\system\helper\system\systemStructure;
+use mpcmf\system\http\slimDriver;
 use mpcmf\system\pattern\singleton;
 use mpcmf\system\view\smartyDriver;
 use Slim\Exception\Stop;
@@ -642,7 +643,7 @@ abstract class webApplicationBase
      * @param null $instance
      * @param string|null $appKey
      *
-     * @return Slim
+     * @return slimDriver
      * @throws webApplicationException
      */
     public function slim($instance = null, $appKey = null)
@@ -660,7 +661,7 @@ abstract class webApplicationBase
                 throw new webApplicationException('Undefined required config sections: slim, name');
             }
 
-            self::$slimInstance[$appKey] = new Slim($config['slim']);
+            self::$slimInstance[$appKey] = new slimDriver($config['slim']);
             self::$slimInstance[$appKey]->setName($appKey);
             self::$slimInstance[$appKey]->add(new ContentTypes());
 
