@@ -333,7 +333,7 @@ abstract class run
                     }
 
                     try {
-                        $app = $this->app($requestContent);
+                        $app = $this->app($prepareResponse['content']);
                         $slim = $app->slim();
                         $originApplication = $this->applicationInstance->getCurrentApplication();
                         $this->applicationInstance->setApplication($app);
@@ -410,7 +410,8 @@ abstract class run
             return [
                 'status' => false,
                 'response' => $response,
-                'request' => $request
+                'request' => $request,
+                'content' => $content,
             ];
         }
 
@@ -425,7 +426,8 @@ abstract class run
             return [
                 'status' => false,
                 'response' => $response,
-                'request' => $request
+                'request' => $request,
+                'content' => $content,
             ];
         }
 
@@ -494,6 +496,7 @@ abstract class run
         $contentType = $request->getHeaderLine('content-type');
         if (stripos($contentType, 'application/json') !== false) {
             $_POST = [];
+            $content = json_decode($content, true) ?? $content;
         } elseif (!preg_match('/boundary="?(.*)"?$/', $contentType, $matches)) {
             parse_str($content, $_POST);
         } else {
@@ -516,7 +519,8 @@ abstract class run
         return [
             'status' => true,
             'response' => null,
-            'request' => $request
+            'request' => $request,
+            'content' => $content,
         ];
     }
 

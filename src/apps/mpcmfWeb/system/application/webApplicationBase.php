@@ -23,6 +23,7 @@ use mpcmf\system\helper\system\systemStructure;
 use mpcmf\system\pattern\singleton;
 use mpcmf\system\view\smartyDriver;
 use Slim\Exception\Stop;
+use Slim\Middleware\ContentTypes;
 use Slim\Middleware\PrettyExceptions;
 use Slim\Route;
 use Slim\Slim;
@@ -495,7 +496,7 @@ abstract class webApplicationBase
         if($isApiRequest) {
             $authorizationHeader = $request->headers('Authorization');
             if ($authorizationHeader !== null) {
-                list($tokenType, $accessToken) = preg_split('/\s+/', trim($authorizationHeader));
+                [$tokenType, $accessToken] = preg_split('/\s+/', trim($authorizationHeader));
                 if ($tokenType !== 'Bearer') {
                     $body = json_encode([
                         'status' => false,
@@ -661,6 +662,7 @@ abstract class webApplicationBase
 
             self::$slimInstance[$appKey] = new Slim($config['slim']);
             self::$slimInstance[$appKey]->setName($appKey);
+            self::$slimInstance[$appKey]->add(new ContentTypes());
 
             set_error_handler(array('\Slim\Slim', 'handleErrors'));
 
