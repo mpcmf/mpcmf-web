@@ -588,12 +588,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/mpcmf/mpcmf-core.git",
-                "reference": "e3fb6dc0a969e1d05c387be10d8219cd035c59cb"
+                "reference": "8a0f31fa58d795523b714a8a59ae580d41040aba"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/mpcmf/mpcmf-core/zipball/e3fb6dc0a969e1d05c387be10d8219cd035c59cb",
-                "reference": "e3fb6dc0a969e1d05c387be10d8219cd035c59cb",
+                "url": "https://api.github.com/repos/mpcmf/mpcmf-core/zipball/8a0f31fa58d795523b714a8a59ae580d41040aba",
+                "reference": "8a0f31fa58d795523b714a8a59ae580d41040aba",
                 "shasum": ""
             },
             "require": {
@@ -668,7 +668,7 @@
                 "issues": "https://github.com/greevex/mpcmf-core/issues?state=open",
                 "source": "https://github.com/greevex/mpcmf-core"
             },
-            "time": "2022-09-14T14:18:57+00:00"
+            "time": "2022-11-03T14:07:26+00:00"
         },
         {
             "name": "mpcmf/mpcmf-signal-handler",
