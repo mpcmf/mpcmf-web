@@ -339,8 +339,11 @@ abstract class run
                         $this->applicationInstance->setApplication($app);
                         $slim->call();
                     } catch(\Exception $e) {
-                        $errorMessage = "Exception: {$e->getMessage()} in {$e->getFile()}:{$e->getLine()}\n{$e->getTraceAsString()}";
-                        $this->output->writeln("<error>[CHILD:{$this->port}]</error> {$errorMessage}");
+                        $errorMessage = 'ISE: check';
+                        if((int)ini_get('display_errors') !== 0) {
+                            $errorMessage = "Exception: {$e->getMessage()} in {$e->getFile()}:{$e->getLine()}\n{$e->getTraceAsString()}";
+                            $this->output->writeln("<error>[CHILD:{$this->port}]</error> {$errorMessage}");
+                        }
                         $resolve(new reactResponse(500, [], $errorMessage));
 
                         return;
