@@ -326,13 +326,13 @@ abstract class run
                     $requestContent .= $data;
                 });
                 $body->on('end', function () use ($resolve, &$requestContent, $request) {
-                    $prepareResponse = $this->prepare($request, $requestContent);
-                    if(!$prepareResponse['status']) {
-                        $resolve($prepareResponse['response']);
-                        return;
-                    }
-
                     try {
+                        $prepareResponse = $this->prepare($request, $requestContent);
+                        if(!$prepareResponse['status']) {
+                            $resolve($prepareResponse['response']);
+                            return;
+                        }
+
                         $app = $this->app($requestContent);
                         $slim = $app->slim();
                         $originApplication = $this->applicationInstance->getCurrentApplication();
