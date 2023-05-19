@@ -2,9 +2,9 @@
 
 {if !isset($status)}
     <div class="row">
-        <div class="col-lg-offset-2 col-lg-8">
+        <div class="offset-lg-2 col-lg-8">
             <form method="post">
-                <table class="table table-bordered table-condensed table-striped">
+                <table class="table table-bordered table-sm table-striped">
                     <thead>
                     <tr>
                         <th>Поле</th>

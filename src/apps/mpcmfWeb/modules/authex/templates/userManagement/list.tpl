@@ -1,14 +1,19 @@
 <ul class="pagination">
-    <li class="paginate_button previous disabled" tabindex="0"><a href="#">Previous</a></li>
-    <li class="paginate_button next" tabindex="0"><a href="#">Next</a></li>
+    <li class="paginate_button previous disabled" tabindex="0">
+        <a href="#">Previous</a>
+    </li>
+    <li class="paginate_button next" tabindex="0">
+        <a href="#">Next</a>
+    </li>
 </ul>
-<table class="table table-bordered table-condensed table-hover col-xs-12">
+<table class="table table-bordered table-sm table-hover col-12">
     <thead>
     <tr>
         <th></th>
         {assign var="map" value=$data.entity->getMapper()->getMap()}
         {foreach from=$map item='field' key='fieldName'}
-            <th title="{$field.name}" style="max-width: 100px; overflow: hidden; text-overflow: ellipsis;">{$field.name}</th>
+            <th title="{$field.name}"
+                style="max-width: 100px; overflow: hidden; text-overflow: ellipsis;">{$field.name}</th>
         {/foreach}
     </tr>
     </thead>
@@ -17,16 +22,18 @@
         <tr>
             <td width="10px">
                 <div class="btn-group btn-group-sm">
-                    <button type="button" class="btn btn-default btn-sm dropdown-toggle" data-toggle="dropdown"
+                    <button type="button" class="btn btn-light btn-sm dropdown-toggle" data-bs-toggle="dropdown"
                             aria-expanded="false">
-                        <span class="caret"></span>
+                        <span class="bi bi-caret-down-fill"></span>
                         Действия
                     </button>
-                    <ul class="dropdown-menu pull-left" role="menu">
-                        <li><a href="#">Admin action</a>
+                    <ul class="dropdown-menu float-start" role="menu">
+                        <li class="dropdown-item p-0">
+                            <a class="" href="#">Admin action</a>
                         </li>
-                        <li class="divider"></li>
-                        <li><a href="#">Basic action</a>
+                        <li class="dropdown-divider"></li>
+                        <li class="dropdown-item">
+                            <a href="#">Basic action</a>
                         </li>
                     </ul>
                 </div>
@@ -39,7 +46,9 @@
                 {else}
                     {assign var="fieldValue" value="{$item->getFieldValue($fieldName)|json_encode:384|htmlspecialchars}"}
                 {/if}
-                <td style="max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{$fieldValue}">
+                <td class="nowrap"
+                    style="max-width: 100px; overflow: hidden; text-overflow: ellipsis;"
+                    title="{$fieldValue}">
                     {$fieldValue}
                 </td>
             {/foreach}
@@ -49,6 +58,10 @@
 </table>
 
 <ul class="pagination">
-    <li class="paginate_button previous disabled" tabindex="0"><a href="#">Previous</a></li>
-    <li class="paginate_button next" tabindex="0"><a href="#">Next</a></li>
+    <li class="paginate_button previous disabled" tabindex="0">
+        <a href="#">Previous</a>
+    </li>
+    <li class="paginate_button next" tabindex="0">
+        <a href="#">Next</a>
+    </li>
 </ul>
