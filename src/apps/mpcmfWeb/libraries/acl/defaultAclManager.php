@@ -62,6 +62,13 @@ class defaultAclManager
             return $tokenResponse;
         }
 
+        if (!isset($tokenResponse['data']) || !is_array($tokenResponse['data'])
+            || !isset($tokenResponse['data']['g']) || !is_array($tokenResponse['data']['g'])) {
+            return $this->error([
+                'errors' => ['Invalid access_token given']
+            ], self::ACL__FORBIDDEN);
+        }
+
         return $this->checkActionAccessByGroups($action, $tokenResponse['data']['g']);
     }
 
