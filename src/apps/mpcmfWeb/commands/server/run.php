@@ -512,7 +512,7 @@ abstract class run
             $_COOKIE = [];
         }
 
-        $_REQUEST = array_merge($_GET, $_POST);
+        $_REQUEST = array_merge($_GET, $_POST ?: []);
 
         return [
             'status' => true,
