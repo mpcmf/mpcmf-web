@@ -1,32 +1,32 @@
 {include file="crud/_page_title.tpl" title="Управление пользователями <strong>{$_entity->getEntityName()}</strong>"}
 
 <div class="row">
-    <div class="col-lg-offset-2 col-lg-8">
-            <table class="table table-bordered table-condensed table-striped">
-                <thead>
+    <div class="offset-lg-2 col-lg-8">
+        <table class="table table-bordered table-sm table-striped">
+            <thead>
+            <tr>
+                <th>Поле</th>
+                <th>Значение</th>
+            </tr>
+            </thead>
+            <tbody>
+            {foreach from=$data.group->getMapper()->getMap() key="fieldName" item="field"}
                 <tr>
-                    <th>Поле</th>
-                    <th>Значение</th>
+                    <td class="col-sm-4">{$field.name}</td>
+                    {if isset($data.group)}
+                        <td>{include file="forms/generate/type_{$field.formType}.tpl" fieldName=$fieldName field=$field item=$data.group readonly=true _entity=$data.group->getEntity()}</td>
+                    {else}
+                        <td>{include file="forms/generate/type_{$field.formType}.tpl" fieldName=$fieldName field=$field readonly=true _entity=$data.group}</td>
+                    {/if}
                 </tr>
-                </thead>
-                <tbody>
-                {foreach from=$data.group->getMapper()->getMap() key="fieldName" item="field"}
-                    <tr>
-                        <td class="col-sm-4">{$field.name}</td>
-                        {if isset($data.group)}
-                            <td>{include file="forms/generate/type_{$field.formType}.tpl" fieldName=$fieldName field=$field item=$data.group readonly=true _entity=$data.group->getEntity()}</td>
-                        {else}
-                            <td>{include file="forms/generate/type_{$field.formType}.tpl" fieldName=$fieldName field=$field readonly=true _entity=$data.group}</td>
-                        {/if}
-                    </tr>
-                {/foreach}
-                </tbody>
-            </table>
+            {/foreach}
+            </tbody>
+        </table>
     </div>
 </div>
 <div class="row">
-    <div class="col-lg-offset-2 col-lg-8">
-        <table class="table table-bordered table-condensed table-striped">
+    <div class="offset-lg-2 col-lg-8">
+        <table class="table table-bordered table-sm table-striped">
             <thead>
             <tr>
                 <th>Действия</th>
@@ -40,20 +40,26 @@
                 <tr>
                     <td class="col-sm-1">
                         <div class="btn-group btn-group-sm">
-                            <button type="button" class="btn btn-default btn-mini dropdown-toggle"
-                                    data-toggle="dropdown">
+                            <button type="button" class="btn btn-light btn-mini dropdown-toggle"
+                                    data-bs-toggle="dropdown">
                                 Действия
-                                <span class="caret"></span>
+                                <span class="bi bi-caret-down-fill"></span>
                             </button>
-                            <ul class="dropdown-menu pull-left" role="menu">
-                                <li><a href="{$_slim->urlFor('/authex/userManagement/userManagement.userUpdate', [$userModel->getMapper()->getKey() => $userModel->getIdValue()])}">Edit</a>
+                            <ul class="dropdown-menu float-start" role="menu">
+                                <li class="dropdown-item">
+                                    <a href="{$_slim->urlFor('/authex/userManagement/userManagement.userUpdate',
+                                    [$userModel->getMapper()->getKey() => $userModel->getIdValue()])}">Edit
+                                    </a>
                                 </li>
-                                <li><a href="{$_slim->urlFor('/authex/userManagement/userManagement.userGet', [$userModel->getMapper()->getKey() => $userModel->getIdValue()])}">View</a>
+                                <li class="dropdown-item">
+                                    <a href="{$_slim->urlFor('/authex/userManagement/userManagement.userGet',
+                                    [$userModel->getMapper()->getKey() => $userModel->getIdValue()])}">View
+                                    </a>
                                 </li>
-                                <li class="divider">Crud</li>
+                                <li class="dropdown-divider">Crud</li>
                                 {foreach from=$structure[$userModel->getEntityUniqueName()]['actions'] key="routeName" item="routeAction"}
                                     {if $routeAction->getType() != 2}{continue}{/if}
-                                    <li>
+                                    <li class="dropdown-item">
                                         <a href="{$_slim->urlFor($routeName, [$userModel->getMapper()->getKey() => $userModel->getIdValue()])}">
                                             CRUD: {$routeAction->getName()|htmlspecialchars}
                                         </a>

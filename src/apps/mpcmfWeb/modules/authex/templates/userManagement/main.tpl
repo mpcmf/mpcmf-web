@@ -1,16 +1,19 @@
+{$_application->setTitle("{$_entity->getEntityName()} / Управление пользователями")}
+
 {include file="crud/_page_title.tpl" title="Управление пользователями <strong>{$_entity->getEntityName()}</strong>"}
+
 <style type="text/css">
     button.btn.btn-mini {
         padding: 1px;
     }
 </style>
 <div class="row">
-    <div class="col-lg-6">
-        <div class="panel panel-default">
-            <div class="panel-heading">
+    <div class="col-lg-5">
+        <div class="card border-warning">
+            <div class="card-header bg-warning bg-opacity-25">
                 Пользователи
             </div>
-            <div class="panel-body">
+            <div class="card-body">
                 <table class="table table-striped table-bordered table-hover">
                     <thead>
                     <tr>
@@ -25,23 +28,25 @@
                         <tr>
                             <td class="col-sm-1">
                                 <div class="btn-group btn-group-sm">
-                                    <button type="button" class="btn btn-default btn-mini dropdown-toggle"
-                                            data-toggle="dropdown">
-                                        Действия
-                                        <span class="caret"></span>
+                                    <button type="button" class="btn btn-light btn-mini dropdown-toggle"
+                                            data-bs-toggle="dropdown">Действия
+                                        <span class="bi bi-caret-down-fill"></span>
                                     </button>
-                                    <ul class="dropdown-menu pull-left" role="menu">
-                                        <li><a href="{$_slim->urlFor('/authex/userManagement/userManagement.userUpdate', [$user->getMapper()->getKey() => $user->getIdValue()])}">Edit</a>
+                                    <ul class="dropdown-menu float-start" role="menu">
+                                        <li class="text-no-wrap dropdown-item p-0">
+                                            <a class="d-block py-2 px-3"
+                                               href="{$_slim->urlFor('/authex/userManagement/userManagement.userUpdate', [$user->getMapper()->getKey() => $user->getIdValue()])}">Edit</a>
                                         </li>
-                                        <li><a href="{$_slim->urlFor('/authex/userManagement/userManagement.userGet', [$user->getMapper()->getKey() => $user->getIdValue()])}">View</a>
+                                        <li class="text-no-wrap dropdown-item p-0">
+                                            <a class="d-block py-2 px-3" href="{$_slim->urlFor
+                                            ('/authex/userManagement/userManagement.userGet', [$user->getMapper()->getKey() => $user->getIdValue()])}">View</a>
                                         </li>
-                                        <li class="divider">Crud</li>
+                                        <li class="dropdown-divider">Crud</li>
                                         {foreach from=$structure[$user->getEntityUniqueName()]['actions'] key="routeName" item="routeAction"}
                                             {if $routeAction->getType() != 2}{continue}{/if}
-                                            <li>
-                                                <a href="{$_slim->urlFor($routeName, [$user->getMapper()->getKey() => $user->getIdValue()])}">
-                                                    CRUD: {$routeAction->getName()|htmlspecialchars}
-                                                </a>
+                                            <li class="text-no-wrap dropdown-item p-0">
+                                                <a class="d-block py-2 px-3" href="{$_slim->urlFor($routeName,
+                                                [$user->getMapper()->getKey()=> $user->getIdValue()])}">CRUD: {$routeAction->getName()|htmlspecialchars}</a>
                                             </li>
                                         {/foreach}
                                     </ul>
@@ -60,12 +65,12 @@
             </div>
         </div>
     </div>
-    <div class="col-lg-6">
-        <div class="panel panel-default">
-            <div class="panel-heading">
-                Группы
+    <div class="col-lg-7">
+        <div class="card border-warning">
+            <div class="card-header bg-warning bg-opacity-25">
+                Группы (только с участниками)
             </div>
-            <div class="panel-body">
+            <div class="card-body">
                 <table class="table table-striped table-bordered table-hover">
                     <thead>
                     <tr>
@@ -77,23 +82,31 @@
                     <tbody>
                     {assign var="structure" value=$data.group->getModule()->getModuleRoutes()->getStructure()}
                     {foreach from=$data.group->getMapper()->getAllBy() item="group"}
+                        {assign var="groupCount" value=$user->getMapper()->getAllBy(['groups' => $group->getIdvalue()])->count()}
+                        {if $groupCount == 0}{continue}{/if}
                         <tr>
-                            <td class="col-sm-1">
+                            <td>
                                 <div class="btn-group btn-group-sm">
-                                    <button type="button" class="btn btn-default btn-mini dropdown-toggle"
-                                            data-toggle="dropdown">
+                                    <button type="button" class="btn btn-light btn-mini dropdown-toggle"
+                                            data-bs-toggle="dropdown">
                                         Действия
-                                        <span class="caret"></span>
+                                        <span class="bi bi-caret-down-fill"></span>
                                     </button>
-                                    <ul class="dropdown-menu pull-left" role="menu">
-                                        <li><a href="{$_slim->urlFor('/authex/userManagement/userManagement.groupUpdate', [$group->getMapper()->getKey() => $group->getIdValue()])}">Edit</a>
+                                    <ul class="dropdown-menu float-start" role="menu">
+                                        <li class="text-nowrap dropdown-item">
+                                            <a href="{$_slim->urlFor('/authex/userManagement/userManagement.groupUpdate', [$group->getMapper()->getKey() => $group->getIdValue()])}">
+                                                Edit
+                                            </a>
                                         </li>
-                                        <li><a href="{$_slim->urlFor('/authex/userManagement/userManagement.groupGet', [$group->getMapper()->getKey() => $group->getIdValue()])}">View</a>
+                                        <li class="text-nowrap dropdown-item">
+                                            <a href="{$_slim->urlFor('/authex/userManagement/userManagement.groupGet', [$group->getMapper()->getKey() => $group->getIdValue()])}">
+                                                View
+                                            </a>
                                         </li>
-                                        <li class="divider">Crud</li>
+                                        <li class="dropdown-divider">Crud</li>
                                         {foreach from=$structure[$group->getEntityUniqueName()]['actions'] key="routeName" item="routeAction"}
                                             {if $routeAction->getType() != 2}{continue}{/if}
-                                            <li>
+                                            <li class="text-nowrap dropdown-item">
                                                 <a href="{$_slim->urlFor($routeName, [$group->getMapper()->getKey() => $group->getIdValue()])}">
                                                     CRUD: {$routeAction->getName()|htmlspecialchars}
                                                 </a>
@@ -106,7 +119,7 @@
                                 {$group->getName()}
                             </td>
                             <td>
-                                {$user->getMapper()->getAllBy(['groups' => $group->getIdvalue()])->count()}
+                                {$groupCount}
                             </td>
                         </tr>
                     {/foreach}

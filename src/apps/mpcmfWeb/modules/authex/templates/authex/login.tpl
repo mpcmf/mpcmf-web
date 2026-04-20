@@ -1,21 +1,25 @@
 {include file="index/header.tpl"}
-<div class="container">
+
+<div >
     <div class="row">
-        <div class="col-md-6 col-md-offset-3">
+        <div class="m-auto col-md-6 offset-md-3">
             {if $status === false && isset($data.errors) && $data.errors|strpos:"not found" !== false}
-                <div class="col-md-8 col-md-offset-2">
-                    <div class="panel panel-default panel-danger">
-                        <div class="panel-heading">Ошибка</div>
-                        <div class="panel-body">Неверный логин или пароль</div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title"><strong>Ошибка</strong></h3>
+                    </div>
+                    <div class="card-body text-center bg-warning bg-opacity-25">
+                        <h4 class="text-bold">Неверный логин или пароль</h4>
                     </div>
                 </div>
             {/if}
-            {assign var="title" value="Авторизация"}
-            {assign var="submit" value="Авторизоваться"}
-            {assign var="fields" value=$data.loginFields}
-            {include file="authex/default_form.tpl"}
-            <span class="small"><a href="{$_application->getUrl('/authex/user/passwordRecovery')}">Забыли пароль?</a></span>
-            <span class="small pull-right"><a href="{$_application->getUrl('/')}">Вернуться на главную</a></span>
+            {include
+                file="authex/default_form.tpl"
+                title="<strong>Авторизация</strong>"
+                submit="Войти в систему"
+                fields=$data.loginFields
+                forgot_pass=true
+            }
         </div>
     </div>
 </div>

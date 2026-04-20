@@ -1,6 +1,6 @@
-{include file="index/header.tpl" title="Social Data Stream"}
+{include file="index/header.tpl" title="MPCMF"}
 
-<div class="col-md-offset-4 col-md-4">
+<div class="offset-md-4 col-md-4">
     <div class="alert alert-warning" role="alert">
         <strong>Внимание!</strong>&nbsp;
         Инвайт не найден или был использован!<br>
