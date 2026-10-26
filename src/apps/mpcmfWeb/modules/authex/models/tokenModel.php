@@ -56,9 +56,9 @@ class tokenModel
         $data = $this->export();
         $data = $this->getMapper()->convertDataFromForm($data);
 
+        // groups are not stored in the token: the token manager reads them from the user record
         return [
             'i' => (string)$data[tokenMapper::FIELD___ID], //id
-            'g' => $this->getUser()->getGroupIds(), //groups
             'e' => $data[tokenMapper::FIELD__EXPIRE], //expire
             'n' => $data[tokenMapper::FIELD__UNLIMITED], //bool
         ];

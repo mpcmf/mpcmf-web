@@ -20,6 +20,7 @@ use mpcmf\system\configuration\exception\configurationException;
 use mpcmf\system\helper\io\response;
 use mpcmf\system\helper\system\profiler;
 use mpcmf\system\pattern\singleton;
+use Slim\Slim;
 use mpcmf\system\storage\exception\storageException;
 use mpcmf\system\token\tokenManager;
 
@@ -192,7 +193,10 @@ class defaultAclManager
         }
         ksort($data);
 
-        return substr(sha1(json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)), -8);
+        // keyed: the sign is the only integrity check when the application turns `cookies.encrypt` off
+        $secret = (string)Slim::getInstance()->config('cookies.secret_key');
+
+        return hash_hmac('sha256', json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), $secret);
     }
 
     /**
@@ -266,12 +270,10 @@ class defaultAclManager
      */
     public function buildCookieDataByUser(modelBase $user)
     {
+        // only the id: getCurrentUser() loads the user from the database anyway,
+        // and nothing else belongs in a cookie that leaves the server
         return [
             'id' => $user->getIdValue(),
-            'name' => $user->getFirstName(),
-            'groups' => $user->getGroupIds(),
-            'email' => $user->getEmail()
         ];
-
     }
 }
