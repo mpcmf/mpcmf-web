@@ -89,15 +89,17 @@ class tokenController
             ]));
         }
 
-        $tokenData = tokenManager::getInstance()->decode($tokenString);
-
         $this->getSlim()->response()->header('Content-type', 'application/json');
 
-        if ($tokenData === false) {
-            $tokenObject = null;
-        } else {
-            $tokenObject = $this->getMapper()->getById($tokenData['i'])->export();
+        $validateResponse = tokenManager::getInstance()->validateToken($tokenString);
+        if (!$validateResponse['status']) {
+            return [
+                'data' => $validateResponse
+            ];
         }
+
+        $tokenData = $validateResponse['data'];
+        $tokenObject = $this->getMapper()->getById($tokenData['i'])->export();
 
         return [
             'data' => self::success([
