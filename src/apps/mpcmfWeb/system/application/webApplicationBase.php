@@ -665,7 +665,7 @@ abstract class webApplicationBase
             self::$slimInstance[$appKey]->setName($appKey);
             self::$slimInstance[$appKey]->add(new ContentTypes());
 
-            set_error_handler(array('\Slim\Slim', 'handleErrors'));
+            set_error_handler([slimDriver::class, 'handleErrors']);
 
             //Apply final outer middleware layers
             if (self::$slimInstance[$appKey]->config('debug')) {
