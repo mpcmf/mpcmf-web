@@ -13,6 +13,7 @@
         }
     ],
     "require": {
+        "ext-openssl": "*",
         "react/http": "^0.7@dev",
         "mpcmf/mpcmf-console": "dev-master",
         "mpcmf/mpcmf-core": "dev-master",
