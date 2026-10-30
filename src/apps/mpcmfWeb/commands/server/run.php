@@ -418,7 +418,7 @@ abstract class run
         $realPath = realpath($settings['document_root'] . $path);
         if($realPath !== false && strpos($realPath, $settings['document_root']) !== false && (file_exists($realPath) && !is_dir($realPath))) {
             $response = new ReactResponse(200, [
-                'Content-type' => \GuzzleHttp\Psr7\mimetype_from_filename($realPath),
+                'Content-type' => \GuzzleHttp\Psr7\MimeType::fromFilename($realPath),
                 'Content-length' => filesize($realPath),
             ], file_get_contents($realPath));
             MPCMF_DEBUG && $this->output->writeln("<info>[CHILD:{$this->port}]</info> Connection closed by static");
