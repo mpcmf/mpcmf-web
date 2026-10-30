@@ -13,6 +13,7 @@
         }
     ],
     "require": {
+        "php": ">=8.1",
         "ext-openssl": "*",
         "react/http": "^0.7@dev",
         "mpcmf/mpcmf-console": "dev-master",
