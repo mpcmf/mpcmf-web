@@ -28,7 +28,11 @@ use React\Stream\Stream as reactStream;
 use Slim\Environment;
 use Slim\Http\Request;
 use Slim\Http\Response;
+use Slim\Middleware;
+use Slim\Middleware\PrettyExceptions;
 use Slim\Route;
+use Slim\Router;
+use Slim\Slim;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -350,6 +354,8 @@ abstract class run
         $originApplication = null;
         $obLevel = ob_get_level();
         $errorHandlerGuard = null;
+        $slim = null;
+        $middleware = null;
         try {
             $prepareResponse = $this->prepare($request, $requestContent);
             if(!$prepareResponse['status']) {
@@ -359,6 +365,7 @@ abstract class run
 
             $app = $this->app($requestContent);
             $slim = $app->slim();
+            $middleware = $this->slimMiddleware($slim);
             $originApplication = $this->applicationInstance->getCurrentApplication();
             $this->applicationInstance->setApplication($app);
             // runRaw() leaves its error handler installed when an \Error passes through Slim
@@ -387,6 +394,9 @@ abstract class run
 
             return new reactResponse(500, [], $responseBody);
         } finally {
+            if($slim !== null) {
+                $this->resetSlimState($slim, $middleware);
+            }
             if($originApplication !== null) {
                 $this->applicationInstance->setApplication($originApplication);
             }
@@ -434,6 +444,58 @@ abstract class run
                 return;
             }
         }
+    }
+
+    /**
+     * @param Slim $slim
+     *
+     * @return Middleware[]
+     */
+    private function slimMiddleware(Slim $slim)
+    {
+        return \Closure::bind(function () {
+            return $this->middleware;
+        }, $slim, Slim::class)();
+    }
+
+    /**
+     * Undo per-request state that Slim keeps in long living objects
+     *
+     * - slimDriver::runRaw() adds PrettyExceptions on every call in debug mode: the middleware chain grows by one
+     *   element per request. Middleware added during the request in front of the chain is removed.
+     * - Route::matches() appends to Route::$paramNames on every call: every route of the request method grows
+     *   on every request, routes live as long as the child.
+     *
+     * @param Slim              $slim
+     * @param Middleware[]|null $middlewareBefore
+     */
+    private function resetSlimState(Slim $slim, $middlewareBefore)
+    {
+        if(is_array($middlewareBefore)) {
+            \Closure::bind(function () use ($middlewareBefore) {
+                while(count($this->middleware) > count($middlewareBefore)
+                    && $this->middleware[0] instanceof PrettyExceptions
+                    && !in_array($this->middleware[0], $middlewareBefore, true)) {
+                    array_shift($this->middleware);
+                }
+            }, $slim, Slim::class)();
+        }
+
+        $router = $slim->router();
+        $routes = \Closure::bind(function () {
+            return $this->routes;
+        }, $router, Router::class)();
+        if(empty($routes)) {
+
+            return;
+        }
+        \Closure::bind(static function (array $routes) {
+            foreach($routes as $route) {
+                $route->params = [];
+                $route->paramNames = [];
+                $route->paramNamesPath = [];
+            }
+        }, null, Route::class)($routes);
     }
 
     public function prepare(ServerRequest $request, $content)
