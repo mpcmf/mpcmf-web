@@ -937,6 +937,21 @@ abstract class run
                 unset($this->sharedSockets[$sharedPort]);
             }
         }
+        // the master does not run the application: its TCP/UDP sockets are its own (proxy connections, also those
+        // still connecting, DNS). A copy in the child keeps a connection open after the master closed it.
+        $keep = [];
+        if(isset($this->sharedSockets[$port])) {
+            $keep[(int)$this->sharedSockets[$port]] = true;
+        }
+        foreach(get_resources('stream') as $resource) {
+            if(isset($keep[(int)$resource])) {
+                continue;
+            }
+            $type = stream_get_meta_data($resource)['stream_type'] ?? '';
+            if(strpos($type, 'tcp_socket') === 0 || strpos($type, 'udp_socket') === 0) {
+                fclose($resource);
+            }
+        }
         if(isset($this->notifySockets[0])) {
             fclose($this->notifySockets[0]);
             unset($this->notifySockets[0]);
