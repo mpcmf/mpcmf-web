@@ -172,6 +172,13 @@ abstract class run
     private $childPrepared = false;
 
     /**
+     * Child: the application bootstrap in app() succeeded
+     *
+     * @var bool
+     */
+    private $appReady = false;
+
+    /**
      * Child: accepted connections which have not sent anything yet
      *
      * @var Connection[]
@@ -340,6 +347,10 @@ abstract class run
         }
         foreach($this->threads as $addr => $thread) {
             if(!$thread->isAlive()) {
+                // a child dying right after start is not restarted more often than once a second
+                if(method_exists($thread, 'getStartedAt') && $thread->getStartedAt() !== null && time() - $thread->getStartedAt() < 1) {
+                    continue;
+                }
                 if($thread->getPid() !== null && method_exists($thread, 'getExitCode')) {
                     $this->output->writeln("<error>[MASTER]</error> Child {$thread->getPid()} exited with code " . json_encode($thread->getExitCode()));
                 }
@@ -1194,6 +1205,7 @@ abstract class run
         $errorHandlerGuard = null;
         $slim = null;
         $middleware = null;
+        $inApp = false;
         try {
             $prepareResponse = $this->prepare($request, $requestContent);
             if(!$prepareResponse['status']) {
@@ -1201,7 +1213,10 @@ abstract class run
                 return $prepareResponse['response'];
             }
 
+            $inApp = true;
             $app = $this->app($requestContent);
+            $inApp = false;
+            $this->appReady = true;
             $slim = $app->slim();
             $middleware = $this->slimMiddleware($slim);
             $originApplication = $this->applicationInstance->getCurrentApplication();
@@ -1228,6 +1243,10 @@ abstract class run
             if((int)ini_get('display_errors') !== 0) {
                 $responseBody = "{$errorMessage}\n{$e->getTraceAsString()}";
                 $this->output->writeln("<error>[CHILD:{$this->port}]</error> {$responseBody}");
+            }
+            if($inApp && !$this->appReady && $this->childSocket !== null) {
+                // the static state of a failed bootstrap is unknown: let the master start a clean child
+                $this->stopChild('application bootstrap failed');
             }
 
             return new reactResponse(500, [], $responseBody);
@@ -1502,13 +1521,15 @@ abstract class run
         static $app, $router;
 
         if($app === null) {
-            $app = $this->getBaseApplication();
+            // assigned once the bootstrap succeeded: a half initialized application must not serve requests
+            $newApp = $this->getBaseApplication();
             //MPCMF_DEBUG && self::log()->addDebug('Before bindings call...');
-            $app->beforeBindings();
-            $app->processBindings();
+            $newApp->beforeBindings();
+            $newApp->processBindings();
             $env = Environment::getInstance();
             $env['slim.input'] = $content;
-            $router = clone $app->slim()->router();
+            $router = clone $newApp->slim()->router();
+            $app = $newApp;
         } else {
             /** @var mpcmfWeb $app */
             //MPCMF_DEBUG && self::log()->addDebug('Before bindings call...');
