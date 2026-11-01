@@ -326,53 +326,7 @@ abstract class run
                     $requestContent .= $data;
                 });
                 $body->on('end', function () use ($resolve, &$requestContent, $request) {
-                    try {
-                        $prepareResponse = $this->prepare($request, $requestContent);
-                        if(!$prepareResponse['status']) {
-                            $resolve($prepareResponse['response']);
-                            return;
-                        }
-
-                        $app = $this->app($requestContent);
-                        $slim = $app->slim();
-                        $originApplication = $this->applicationInstance->getCurrentApplication();
-                        $this->applicationInstance->setApplication($app);
-                        [$status, $headers, $body] = $slim->runRaw();
-                    } catch(\Exception $e) {
-                        $errorMessage = 'ISE: check';
-                        if((int)ini_get('display_errors') !== 0) {
-                            $errorMessage = "Exception: {$e->getMessage()} in {$e->getFile()}:{$e->getLine()}\n{$e->getTraceAsString()}";
-                            $this->output->writeln("<error>[CHILD:{$this->port}]</error> {$errorMessage}");
-                        }
-                        $resolve(new reactResponse(500, [], $errorMessage));
-
-                        return;
-                    }
-
-                    $headers = $headers->all();
-                    $this->applicationInstance->setApplication($originApplication);
-
-                    static $serverSoftware;
-                    if($serverSoftware === null) {
-                        $serverSoftware = 'MPCMF Async PHP ' . phpversion();
-                    }
-
-                    if (array_key_exists('HTTP_ACCEPT_ENCODING', $_SERVER) && strpos($_SERVER['HTTP_ACCEPT_ENCODING'], 'gzip') !== false) {
-                        $headers['Content-Encoding'] = 'gzip';
-                        $body = gzencode($body, 6);
-                    }
-
-                    $headers['X-PHP-Server'] = $serverSoftware;
-                    $headers['X-PHP-Server-Addr'] = "{$this->childHost}:{$this->port}";
-
-                    if (isset($headers['Set-Cookie']) && is_string($headers['Set-Cookie']) && strpos($headers['Set-Cookie'], "\n") !== false) {
-                        $headers['Set-Cookie'] = explode("\n", $headers['Set-Cookie']);
-                    }
-
-                    $response = new ReactResponse($status, $headers, $body);
-                    MPCMF_DEBUG && $this->output->writeln("<info>[CHILD:{$this->port}]</info> Connection closed");
-
-                    $resolve($response);
+                    $resolve($this->processRequest($request, $requestContent));
                 });
             });
         });
@@ -381,6 +335,105 @@ abstract class run
 
         $this->output->writeln("<error>[CHILD]</error> Starting child server on {$this->childHost}:{$this->port}");
         $loop->run();
+    }
+
+    /**
+     * Run the application for one request, never throws
+     *
+     * @param ServerRequest $request
+     * @param string        $requestContent
+     *
+     * @return reactResponse
+     */
+    private function processRequest(ServerRequest $request, $requestContent)
+    {
+        $originApplication = null;
+        $obLevel = ob_get_level();
+        $errorHandlerGuard = null;
+        try {
+            $prepareResponse = $this->prepare($request, $requestContent);
+            if(!$prepareResponse['status']) {
+
+                return $prepareResponse['response'];
+            }
+
+            $app = $this->app($requestContent);
+            $slim = $app->slim();
+            $originApplication = $this->applicationInstance->getCurrentApplication();
+            $this->applicationInstance->setApplication($app);
+            // runRaw() leaves its error handler installed when an \Error passes through Slim
+            $errorHandlerGuard = static function () {
+                return false;
+            };
+            set_error_handler($errorHandlerGuard);
+            [$status, $headers, $body] = $slim->runRaw();
+            restore_error_handler();
+            $errorHandlerGuard = null;
+        } catch(\Throwable $e) {
+            if($errorHandlerGuard !== null) {
+                $this->restoreErrorHandlerUpTo($errorHandlerGuard);
+            }
+            // Slim::call() output buffer is left open by an \Error
+            while(ob_get_level() > $obLevel && ob_end_clean()) {
+            }
+            $errorMessage = get_class($e) . ": {$e->getMessage()} in {$e->getFile()}:{$e->getLine()}";
+            $requestLine = ($_SERVER['REQUEST_METHOD'] ?? $request->getMethod()) . ' ' . ($_SERVER['REQUEST_URI'] ?? $request->getUri()->getPath());
+            error_log("[CHILD:{$this->port}] {$requestLine}: {$errorMessage}\n{$e->getTraceAsString()}");
+            $responseBody = 'ISE: check';
+            if((int)ini_get('display_errors') !== 0) {
+                $responseBody = "{$errorMessage}\n{$e->getTraceAsString()}";
+                $this->output->writeln("<error>[CHILD:{$this->port}]</error> {$responseBody}");
+            }
+
+            return new reactResponse(500, [], $responseBody);
+        } finally {
+            if($originApplication !== null) {
+                $this->applicationInstance->setApplication($originApplication);
+            }
+        }
+
+        $headers = $headers->all();
+
+        static $serverSoftware;
+        if($serverSoftware === null) {
+            $serverSoftware = 'MPCMF Async PHP ' . phpversion();
+        }
+
+        if (array_key_exists('HTTP_ACCEPT_ENCODING', $_SERVER) && strpos($_SERVER['HTTP_ACCEPT_ENCODING'], 'gzip') !== false) {
+            $headers['Content-Encoding'] = 'gzip';
+            $body = gzencode($body, 6);
+        }
+
+        $headers['X-PHP-Server'] = $serverSoftware;
+        $headers['X-PHP-Server-Addr'] = "{$this->childHost}:{$this->port}";
+
+        if (isset($headers['Set-Cookie']) && is_string($headers['Set-Cookie']) && strpos($headers['Set-Cookie'], "\n") !== false) {
+            $headers['Set-Cookie'] = explode("\n", $headers['Set-Cookie']);
+        }
+
+        MPCMF_DEBUG && $this->output->writeln("<info>[CHILD:{$this->port}]</info> Connection closed");
+
+        return new reactResponse($status, $headers, $body);
+    }
+
+    /**
+     * Pop error handlers down to (and including) the guard
+     *
+     * @param callable $guard
+     */
+    private function restoreErrorHandlerUpTo($guard)
+    {
+        for($i = 0; $i < 32; $i++) {
+            $current = set_error_handler(static function () {
+                return false;
+            });
+            restore_error_handler();
+            restore_error_handler();
+            if($current === $guard || $current === null) {
+
+                return;
+            }
+        }
     }
 
     public function prepare(ServerRequest $request, $content)
