@@ -181,7 +181,7 @@ abstract class run
      * Graceful stop, on by default (needs mpcmf\system\threads\gracefulStop in mpcmf-core, without it the old behaviour)
      *
      * Child: SIGTERM/SIGINT stop accepting, the accepted requests are finished, exit code 0.
-     * Master: stops the children (SIGUSR2), waits for them without starting new ones and exits with 0.
+     * Master: forwards SIGTERM to the children, waits for them without starting new ones and exits with 0.
      * A repeated SIGTERM/SIGINT exits at once.
      *
      * @param bool $enabled
@@ -393,14 +393,6 @@ abstract class run
 
         if($this->gracefulStopActive) {
             gracefulStop::enable((int)ceil($this->gracefulStopTimeout) + 10);
-            // the master asks children to stop with SIGUSR2: unlike a forwarded SIGTERM it does not count as
-            // a repeated stop signal when the process manager signals the whole group. Inherited by forked children.
-            $masterPid = $this->masterPid;
-            pcntl_signal(SIGUSR2, static function () use ($masterPid) {
-                if(posix_getpid() !== $masterPid) {
-                    gracefulStop::request();
-                }
-            });
         } elseif(class_exists(signalHandler::class)) {
             // without gracefulStop in core thread::masterSignalHandler() kills the children on SIGTERM:
             // do not start them again, exit
@@ -461,7 +453,9 @@ abstract class run
             if($this->gracefulStopActive) {
                 foreach($this->getChildThreads() as $thread) {
                     if($thread->isAlive()) {
-                        posix_kill($thread->getPid(), SIGUSR2);
+                        // a graceful thread does not exit on a repeated SIGTERM (the process manager may have
+                        // signalled the whole group already), the deadline of gracefulStop applies
+                        posix_kill($thread->getPid(), SIGTERM);
                     }
                 }
             }
