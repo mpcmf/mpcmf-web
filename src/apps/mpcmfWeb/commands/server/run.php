@@ -442,11 +442,13 @@ abstract class run
 
             return;
         }
-        $isGraceful = \Closure::bind(function () {
-            return $this->gracefulStop;
-        }, null, thread::class);
+        $isGraceful = static function (thread $thread) {
+            return \Closure::bind(function () {
+                return $this->gracefulStop;
+            }, $thread, thread::class)();
+        };
         foreach($this->threads as $thread) {
-            if(!$isGraceful->call($thread)) {
+            if(!$isGraceful($thread)) {
                 $this->gracefulStopActive = false;
                 $this->output->writeln('<error>[MASTER]</error> Graceful stop is disabled: prepareThreads() of ' . static::class . ' creates threads without it');
                 foreach($this->threads as $anyThread) {
