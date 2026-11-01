@@ -172,6 +172,13 @@ abstract class run
     private $childPrepared = false;
 
     /**
+     * Child: accepted connections which have not sent anything yet
+     *
+     * @var Connection[]
+     */
+    private $idleConnections = [];
+
+    /**
      * @param float $checkThreadsTimerInterval
      */
     public function setCheckThreadsTimerInterval($checkThreadsTimerInterval)
@@ -1021,7 +1028,14 @@ abstract class run
         $http->listen($socket);
         $socket->on('connection', function (Connection $connection) {
             $this->openConnections++;
-            $connection->on('close', function () {
+            $id = spl_object_id($connection);
+            // react/http 0.7 has no header timeout: a connection without a request must not hold the stop
+            $this->idleConnections[$id] = $connection;
+            $connection->once('data', function () use ($id) {
+                unset($this->idleConnections[$id]);
+            });
+            $connection->on('close', function () use ($id) {
+                unset($this->idleConnections[$id]);
                 $this->openConnections--;
                 $this->afterConnectionClosed();
             });
@@ -1110,6 +1124,7 @@ abstract class run
             $this->childStopForced = true;
             $this->childLoop->stop();
         });
+        $this->closeIdleConnectionsLater();
         $this->finishChildIfIdle();
     }
 
@@ -1139,7 +1154,22 @@ abstract class run
             $this->childStopForced = true;
             $this->childLoop->stop();
         });
+        $this->closeIdleConnectionsLater();
         $this->finishChildIfIdle();
+    }
+
+    /**
+     * Stopping child: close the connections that have not sent a byte within a second
+     */
+    private function closeIdleConnectionsLater()
+    {
+        $this->childLoop->addTimer(1.0, function () {
+            $idle = $this->idleConnections;
+            $this->idleConnections = [];
+            foreach($idle as $connection) {
+                $connection->close();
+            }
+        });
     }
 
     private function finishChildIfIdle()
