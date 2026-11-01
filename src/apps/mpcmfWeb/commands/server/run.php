@@ -11,7 +11,9 @@ use mpcmf\system\application\consoleCommandBase;
 use mpcmf\system\application\exception\webApplicationException;
 use mpcmf\system\application\webApplicationBase;
 use mpcmf\system\configuration\config;
+use mpcmf\system\helper\service\signalHandler;
 use mpcmf\system\helper\system\profiler;
+use mpcmf\system\threads\gracefulStop;
 use mpcmf\system\threads\thread;
 use React\Dns\Resolver\Factory as reactResolver;
 use React\EventLoop\Factory;
@@ -22,7 +24,6 @@ use React\Http\ServerRequest;
 use React\Http\UploadedFile;
 use React\Promise\Promise;
 use React\Socket\Connection;
-use React\Socket\Server as reactSocketServer;
 use React\SocketClient\Connector;
 use React\SocketClient\ConnectorInterface;
 use React\SocketClient\TimeoutConnector;
@@ -89,12 +90,76 @@ abstract class run
 
     private $masterLogState = [];
 
+    /** @var listeningSocketServer|null */
+    private $masterSocketServer;
+
+    /**
+     * Graceful stop on SIGTERM/SIGINT, see setGracefulStop()
+     *
+     * @var bool
+     */
+    private $gracefulStop = true;
+
+    /**
+     * @var float seconds
+     */
+    private $gracefulStopTimeout = 30.0;
+
+    /**
+     * Graceful stop is enabled and supported by mpcmf-core
+     *
+     * @var bool
+     */
+    private $gracefulStopActive = false;
+
+    private $masterPid;
+    private $childExited = false;
+    private $legacyStopRequested = false;
+    private $shuttingDown = false;
+    private $shutdownStartedAt;
+    private $childrenStopSent = false;
+    private $masterFinished = false;
+
+    /** @var LoopInterface|null */
+    private $childLoop;
+
+    /** @var listeningSocketServer|null */
+    private $childSocket;
+
+    private $openConnections = 0;
+    private $childStopping = false;
+    private $childStopForced = false;
+
     /**
      * @param float $checkThreadsTimerInterval
      */
     public function setCheckThreadsTimerInterval($checkThreadsTimerInterval)
     {
         $this->checkThreadsTimerInterval = $checkThreadsTimerInterval;
+    }
+
+    /**
+     * Graceful stop, on by default (needs mpcmf\system\threads\gracefulStop in mpcmf-core, without it the old behaviour)
+     *
+     * Child: SIGTERM/SIGINT stop accepting, the accepted requests are finished, exit code 0.
+     * Master: stops the children (SIGUSR2), waits for them without starting new ones and exits with 0.
+     * A repeated SIGTERM/SIGINT exits at once.
+     *
+     * @param bool $enabled
+     */
+    public function setGracefulStop($enabled)
+    {
+        $this->gracefulStop = (bool)$enabled;
+    }
+
+    /**
+     * Hard deadline of the graceful stop of a child, seconds; the master kills children 5 s later
+     *
+     * @param float $seconds
+     */
+    public function setGracefulStopTimeout($seconds)
+    {
+        $this->gracefulStopTimeout = max(1.0, (float)$seconds);
     }
 
     /**
@@ -149,24 +214,39 @@ abstract class run
         } else {
             @mkdir($smartyDir, 0777, true);
         }
+        $this->masterPid = getmypid();
+        $this->gracefulStopActive = $this->gracefulStop && class_exists(gracefulStop::class) && method_exists(thread::class, 'setGracefulStop');
         $this->prepareThreads($input);
+        $this->setupMasterSignals();
         $this->checkThreads();
 
         $masterServerAddr = $input->getOption('master-server');
         if($masterServerAddr) {
             $this->masterServer($this->parseAddr($masterServerAddr));
         } else {
-            for(;;) {
+            while(!$this->masterFinished) {
                 $this->checkThreads();
-                usleep($this->checkThreadsTimerInterval * 1000000);
+                // interrupted by signals: SIGCHLD, stop requests
+                usleep((int)($this->checkThreadsTimerInterval * 1000000));
+                $this->masterTick();
             }
         }
+        $this->output->writeln('<error>[MASTER]</error> Stopped');
+
+        return 0;
     }
 
     public function checkThreads()
     {
+        if($this->shuttingDown) {
+
+            return;
+        }
         foreach($this->threads as $addr => $thread) {
             if(!$thread->isAlive()) {
+                if($thread->getPid() !== null && method_exists($thread, 'getExitCode')) {
+                    $this->output->writeln("<error>[MASTER]</error> Child {$thread->getPid()} exited with code " . json_encode($thread->getExitCode()));
+                }
                 //MPCMF_DEBUG && $output->writeln("<error>Starting server on {$addr}</error>");
                 try {
                     $thread->start($addr);
@@ -202,8 +282,131 @@ abstract class run
         $this->threads = [];
 
         foreach($this->childPorts as $port => $value) {
-            $this->threads[json_encode($this->parseAddr("{$this->childHost}:{$port}"))] = new thread([$this, 'childServer']);
+            $this->threads[json_encode($this->parseAddr("{$this->childHost}:{$port}"))] = $this->createThread();
         }
+    }
+
+    /**
+     * @return thread
+     */
+    private function createThread()
+    {
+        $thread = new thread([$this, 'childServer']);
+        if($this->gracefulStopActive) {
+            // the master stops children itself instead of killing them on SIGTERM
+            $thread->setGracefulStop(true);
+        }
+
+        return $thread;
+    }
+
+    /**
+     * Master: stop signals and wake up on the exit of a child
+     */
+    private function setupMasterSignals()
+    {
+        pcntl_signal(SIGCHLD, function () {
+            $this->childExited = true;
+        });
+
+        if($this->gracefulStopActive) {
+            gracefulStop::enable((int)ceil($this->gracefulStopTimeout) + 10);
+            // the master asks children to stop with SIGUSR2: unlike a forwarded SIGTERM it does not count as
+            // a repeated stop signal when the process manager signals the whole group. Inherited by forked children.
+            $masterPid = $this->masterPid;
+            pcntl_signal(SIGUSR2, static function () use ($masterPid) {
+                if(posix_getpid() !== $masterPid) {
+                    gracefulStop::request();
+                }
+            });
+        } elseif(class_exists(signalHandler::class)) {
+            // without gracefulStop in core thread::masterSignalHandler() kills the children on SIGTERM:
+            // do not start them again, exit
+            signalHandler::getInstance()->addHandler(SIGTERM, function () {
+                $this->legacyStopRequested = true;
+            });
+        }
+    }
+
+    /**
+     * Master: process signals, run the shutdown
+     */
+    private function masterTick()
+    {
+        pcntl_signal_dispatch();
+        if(!$this->shuttingDown) {
+            $stopRequested = $this->gracefulStopActive ? gracefulStop::isRequested() : $this->legacyStopRequested;
+            if($stopRequested) {
+                $this->beginShutdown();
+            }
+        }
+        if($this->shuttingDown) {
+            $this->continueShutdown();
+        } elseif($this->childExited) {
+            $this->childExited = false;
+            $this->checkThreads();
+        }
+    }
+
+    private function beginShutdown()
+    {
+        $this->shuttingDown = true;
+        $this->shutdownStartedAt = microtime(true);
+        $this->output->writeln("<error>[MASTER]</error> Stopping, waiting up to {$this->gracefulStopTimeout}s for children");
+        if($this->masterSocketServer !== null) {
+            $this->masterSocketServer->pause();
+            $this->masterSocketServer->acceptPending();
+            $this->untrackMasterResource($this->masterSocketServer->getSocket());
+            $this->masterSocketServer->close();
+            $this->masterSocketServer = null;
+        }
+    }
+
+    private function continueShutdown()
+    {
+        $now = microtime(true);
+        // connections accepted by the master proxy reach a child first
+        if(!$this->childrenStopSent && ($this->pendingConnects === 0 || $now - $this->shutdownStartedAt > 1.0)) {
+            $this->childrenStopSent = true;
+            if($this->gracefulStopActive) {
+                foreach($this->getChildThreads() as $thread) {
+                    if($thread->isAlive()) {
+                        posix_kill($thread->getPid(), SIGUSR2);
+                    }
+                }
+            }
+        }
+
+        $alive = [];
+        foreach($this->getChildThreads() as $thread) {
+            if($thread->isAlive()) {
+                $alive[] = $thread;
+            }
+        }
+        if(empty($alive)) {
+            // let the master proxy flush the last responses
+            if(empty($this->masterResources) || $now - $this->shutdownStartedAt > $this->gracefulStopTimeout + 5) {
+                $this->masterFinished = true;
+            }
+
+            return;
+        }
+        if($now - $this->shutdownStartedAt > $this->gracefulStopTimeout + 5) {
+            foreach($alive as $thread) {
+                $this->output->writeln("<error>[MASTER]</error> Killing child {$thread->getPid()}: did not stop in time");
+                posix_kill($thread->getPid(), SIGKILL);
+            }
+        }
+    }
+
+    /**
+     * All children the master is responsible for
+     *
+     * @return thread[]
+     */
+    private function getChildThreads()
+    {
+        return array_values($this->threads);
     }
 
     protected function parseAddr($addr)
@@ -238,10 +441,18 @@ abstract class run
             $this->proxyConnection($clientConnection, $connector);
         });
         $socketServer->resume();
+        $this->masterSocketServer = $socketServer;
 
         $output->writeln("<error>[MASTER]</error> Starting server on {$bindMasterTo['host']}:{$bindMasterTo['port']}");
 
         $loop->addPeriodicTimer($this->checkThreadsTimerInterval, [$this, 'checkThreads']);
+        // a signal only interrupts stream_select(), stop requests and exited children are checked here
+        $loop->addPeriodicTimer(0.1, function () use ($loop) {
+            $this->masterTick();
+            if($this->masterFinished) {
+                $loop->stop();
+            }
+        });
         $loop->run();
     }
 
@@ -434,7 +645,6 @@ abstract class run
 
     public function childServer($addr)
     {
-        $output = $this->output;
         $bindTo = json_decode($addr, true);
         $this->childHost = $bindTo['host'];
         $this->port = $bindTo['port'];
@@ -442,6 +652,12 @@ abstract class run
         cli_set_process_title("mpcmf/console server:run/child -b {$this->childHost} -p {$this->port}");
 
         $this->closeMasterResources();
+        // the master wakes up on SIGCHLD, the application in the child must see the default behaviour
+        pcntl_signal(SIGCHLD, SIG_DFL);
+        if($this->gracefulStopActive) {
+            // a bit later than our own deadline: it fires even if the loop is blocked by a request
+            gracefulStop::enable((int)ceil($this->gracefulStopTimeout) + 2);
+        }
 
 // @FIX: nobody permissions tmp
 //        posix_setgid(99);
@@ -450,38 +666,27 @@ abstract class run
 //        posix_setegid(99);
 
         $loop = Factory::create();
-        $socket = new reactSocketServer("{$this->childHost}:{$this->port}", $loop);
-        $socket->pause();
-        $http = new reactHttpServer(function (ServerRequest $request) use ($socket) {
-            // @HACK for get client address (reflection hack)
-            /** @var ReadableStreamInterface $requestInput */
-            $requestInput = $request->getBody()->input;
-            $thief = function (ReadableStreamInterface $reflectionClass) {
-                $connection = isset($reflectionClass->input) ? $reflectionClass->input : $reflectionClass->stream->input;
-
-                return $connection instanceof Connection ? $connection : $connection->input;
-            };
-            $thief = \Closure::bind($thief, null, $requestInput);
-            // @HACK for get client address (reflection hack)
-
-            $connection = $thief($requestInput);
-            if ($this->oomKillerEnabled) {
-                $connection->on('close', function($connection) use ($socket) {
-                    $memoryUsage = memory_get_usage(true);
-                    if ($memoryUsage > $this->maxMemoryUsage) {
-                        $this->output->writeln("Child stopped, cuz exceed memory limit ({$memoryUsage})");
-
-                        $socket->close();
-                    }
-                });
-            }
-
+        $this->childLoop = $loop;
+        $socket = new listeningSocketServer(listeningSocketServer::listen($this->childHost, $this->port), $loop, false);
+        $this->childSocket = $socket;
+        $http = new reactHttpServer(function (ServerRequest $request) {
             if(MPCMF_DEBUG) {
+                // @HACK for get client address (reflection hack)
+                /** @var ReadableStreamInterface $requestInput */
+                $requestInput = $request->getBody()->input;
+                $thief = function (ReadableStreamInterface $reflectionClass) {
+                    $connection = isset($reflectionClass->input) ? $reflectionClass->input : $reflectionClass->stream->input;
+
+                    return $connection instanceof Connection ? $connection : $connection->input;
+                };
+                $thief = \Closure::bind($thief, null, $requestInput);
+                // @HACK for get client address (reflection hack)
+                $connection = $thief($requestInput);
+
                 $this->output->writeln("<info>[CHILD:{$this->port}]</info> New connection");
                 $clientName = $connection->getRemoteAddress() . '#' . spl_object_hash($request);
                 $this->output->writeln("<info>[{$clientName}] Client connected");
             }
-
 
             profiler::resetStack();
 
@@ -498,10 +703,83 @@ abstract class run
             });
         });
         $http->listen($socket);
+        $socket->on('connection', function (Connection $connection) {
+            $this->openConnections++;
+            $connection->on('close', function () {
+                $this->openConnections--;
+                $this->afterConnectionClosed();
+            });
+        });
+        if($this->gracefulStopActive) {
+            // a signal only interrupts stream_select(), the flag is checked here
+            $loop->addPeriodicTimer(0.2, function () {
+                if(gracefulStop::isRequested()) {
+                    $this->stopChild('stop requested');
+                }
+            });
+        }
         $socket->resume();
 
         $this->output->writeln("<error>[CHILD]</error> Starting child server on {$this->childHost}:{$this->port}");
         $loop->run();
+
+        if($this->childStopForced) {
+            exit(1);
+        }
+        $this->output->writeln("<error>[CHILD]</error> Child server on {$this->childHost}:{$this->port} stopped");
+    }
+
+    /**
+     * Child: a connection is closed, the response is sent
+     */
+    private function afterConnectionClosed()
+    {
+        if($this->childStopping) {
+            $this->finishChildIfIdle();
+
+            return;
+        }
+        if($this->oomKillerEnabled) {
+            $memoryUsage = memory_get_usage(true);
+            if($memoryUsage > $this->maxMemoryUsage) {
+                $this->output->writeln("Child stopped, cuz exceed memory limit ({$memoryUsage})");
+                $this->stopChild("memory usage {$memoryUsage} > {$this->maxMemoryUsage}");
+            }
+        }
+    }
+
+    /**
+     * Child: stop accepting, finish the accepted connections and leave the loop
+     *
+     * The connections already queued by the kernel are accepted first: closing the socket would reset them.
+     *
+     * @param string $reason
+     */
+    private function stopChild($reason)
+    {
+        if($this->childStopping) {
+
+            return;
+        }
+        $this->childStopping = true;
+        $this->childSocket->pause();
+        $accepted = $this->childSocket->acceptPending();
+        $this->childSocket->close();
+        $this->output->writeln("<error>[CHILD]</error> Stopping child server on {$this->childHost}:{$this->port} ({$reason}), connections: {$this->openConnections}, accepted from queue: {$accepted}");
+
+        $this->childLoop->addTimer($this->gracefulStopTimeout, function () {
+            $this->output->writeln("<error>[CHILD]</error> Child server on {$this->childHost}:{$this->port} did not finish in {$this->gracefulStopTimeout}s, connections left: {$this->openConnections}");
+            $this->childStopForced = true;
+            $this->childLoop->stop();
+        });
+        $this->finishChildIfIdle();
+    }
+
+    private function finishChildIfIdle()
+    {
+        if($this->childStopping && $this->openConnections <= 0) {
+            $this->childLoop->stop();
+        }
     }
 
     /**
