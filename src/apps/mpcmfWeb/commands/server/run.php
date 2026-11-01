@@ -4,6 +4,7 @@ namespace mpcmf\apps\mpcmfWeb\commands\server;
 
 use GuzzleHttp\Psr7\Uri;
 use mpcmf\apps\mpcmfWeb\libraries\io\multipartParser;
+use mpcmf\apps\mpcmfWeb\libraries\net\listeningSocketServer;
 use mpcmf\apps\mpcmfWeb\mpcmfWeb;
 use mpcmf\system\application\applicationInstance;
 use mpcmf\system\application\consoleCommandBase;
@@ -14,6 +15,7 @@ use mpcmf\system\helper\system\profiler;
 use mpcmf\system\threads\thread;
 use React\Dns\Resolver\Factory as reactResolver;
 use React\EventLoop\Factory;
+use React\EventLoop\LoopInterface;
 use React\Http\Response as reactResponse;
 use React\Http\Server as reactHttpServer;
 use React\Http\ServerRequest;
@@ -22,9 +24,12 @@ use React\Promise\Promise;
 use React\Socket\Connection;
 use React\Socket\Server as reactSocketServer;
 use React\SocketClient\Connector;
+use React\SocketClient\ConnectorInterface;
+use React\SocketClient\TimeoutConnector;
 use React\Stream\ReadableStreamInterface;
 use React\Stream\Stream;
 use React\Stream\Stream as reactStream;
+use React\Stream\Util;
 use Slim\Environment;
 use Slim\Http\Request;
 use Slim\Http\Response;
@@ -64,11 +69,42 @@ abstract class run
     private $output;
 
     /**
+     * Master server: timeout of the connection to a child, seconds
+     *
+     * @var float
+     */
+    private $masterConnectTimeout = 3.0;
+
+    /**
+     * Master server sockets (listening socket, client and child connections) by resource id
+     *
+     * @var resource[]
+     */
+    private $masterResources = [];
+
+    private $pendingConnects = 0;
+
+    /** @var LoopInterface|null */
+    private $masterLoop;
+
+    private $masterLogState = [];
+
+    /**
      * @param float $checkThreadsTimerInterval
      */
     public function setCheckThreadsTimerInterval($checkThreadsTimerInterval)
     {
         $this->checkThreadsTimerInterval = $checkThreadsTimerInterval;
+    }
+
+    /**
+     * Master server (-m): timeout of the connection to a child, the next child is tried after it
+     *
+     * @param float $seconds
+     */
+    public function setMasterConnectTimeout($seconds)
+    {
+        $this->masterConnectTimeout = (float)$seconds;
     }
 
     /**
@@ -186,82 +222,20 @@ abstract class run
 
         $output = $this->output;
 
-        //MPCMF_DEBUG && $output->writeln('<error>[MASTER]</error> Preparing server');
-
         $loop = Factory::create();
+        $this->masterLoop = $loop;
 
         $dnsResolverFactory = new reactResolver();
         $dns = $dnsResolverFactory->createCached('8.8.8.8', $loop);
-        $connector = new Connector($loop, $dns);
+        $connector = new TimeoutConnector(new Connector($loop, $dns), $this->masterConnectTimeout, $loop);
 
         $output->writeln('<error>[MASTER]</error> Binding callables and building socketServer');
 
-        $socketServer = new reactSocketServer("{$bindMasterTo['host']}:{$bindMasterTo['port']}", $loop);
-        $socketServer->pause();
+        $socketServer = new listeningSocketServer(listeningSocketServer::listen($bindMasterTo['host'], $bindMasterTo['port']), $loop, false);
+        $this->trackMasterResource($socketServer->getSocket());
 
-        $clientId = null;
-
-        $socketServer->on('connection', function (Connection $clientConnection) use ($connector, $output, $clientId, $loop) {
-
-            $clientConnection->pause();
-
-            MPCMF_DEBUG && $clientId = spl_object_hash($clientConnection);
-            do {
-                $threadKey = array_rand($this->threads);
-                if($this->threads[$threadKey]->isAlive()) {
-                    break;
-                }
-                $loop->tick();
-            } while(true);
-            $childPort = json_decode($threadKey, true)['port'];
-
-            //MPCMF_DEBUG && $output->writeln("<error>[MASTER:{$clientId}]</error> Client connected, using port {$childPort}");
-
-
-            $clientConnection->on('end', function() use ($clientConnection, $clientId, $output) {
-                //MPCMF_DEBUG && $output->writeln("<error>[MASTER:{$clientId}]</error> Client connection ending");
-            });
-            $clientConnection->on('close', function() use ($clientConnection, $clientId, $output) {
-                //MPCMF_DEBUG && $output->writeln("<error>[MASTER:{$clientId}]</error> Client connection closed");
-            });
-
-            /** @var \React\Promise\FulfilledPromise|\React\Promise\Promise|\React\Promise\RejectedPromise $childConnection */
-            $childConnection = $connector->create($this->childHost, $childPort);
-            $childConnection->then(function (reactStream $childStream) use ($clientConnection, $childConnection, $output, $clientId) {
-
-                $childStream->pause();
-
-                //MPCMF_DEBUG && $output->writeln('<error>=================== ' . spl_object_hash($childStream) . ' CHILD STREAM OPEN </error>');
-
-                $childStream->on('end', function() use ($clientConnection, $childConnection, $childStream, $output, $clientId) {
-                    //MPCMF_DEBUG && $output->writeln("<error>[MASTER:{$clientId}]</error> Child closed connection");
-                    //MPCMF_DEBUG && $output->writeln('<error>=================== ' . spl_object_hash($childStream) . ' CHILD STREAM CLOSE</error>');
-                    $childStream->close();
-
-                    $clientConnection->getBuffer()->on('full-drain', function() use ($clientConnection, $output, $clientId) {
-                        //MPCMF_DEBUG && $output->writeln("<error>[MASTER:{$clientId}]</error> Buffer is empty, closing client connection");
-                        $clientConnection->close();
-                    });
-                });
-
-                $childStream->on('data', function($data) use ($clientConnection, $childConnection, $childStream, $output, $clientId) {
-                    //MPCMF_DEBUG && $output->writeln("<error>[MASTER:{$clientId}]</error> Response from child received");
-
-                    //MPCMF_DEBUG && $output->writeln("<error>[MASTER:{$clientId}]</error> Sending response to client");
-                    $clientConnection->write($data);
-                });
-
-                $childStream->resume();
-
-                $clientConnection->on('data', function ($data) use ($clientConnection, $childConnection, $output, $clientId, $childStream) {
-                    //MPCMF_DEBUG && $output->writeln("<error>[MASTER:{$clientId}]</error> Client data received");
-
-                    //MPCMF_DEBUG && $output->writeln("<error>[MASTER:{$clientId}]</error> Sending request to child");
-                    $childStream->write($data);
-                });
-
-                $clientConnection->resume();
-            });
+        $socketServer->on('connection', function (Connection $clientConnection) use ($connector) {
+            $this->proxyConnection($clientConnection, $connector);
         });
         $socketServer->resume();
 
@@ -269,6 +243,193 @@ abstract class run
 
         $loop->addPeriodicTimer($this->checkThreadsTimerInterval, [$this, 'checkThreads']);
         $loop->run();
+    }
+
+    /**
+     * Proxy one client connection of the master server to a child
+     *
+     * @param Connection         $clientConnection
+     * @param ConnectorInterface $connector
+     */
+    private function proxyConnection(Connection $clientConnection, ConnectorInterface $connector)
+    {
+        $clientConnection->pause();
+        $clientResource = $clientConnection->stream;
+        $this->trackMasterResource($clientResource);
+
+        $state = (object)[
+            'closed' => false,
+            'child' => null,
+            'tried' => [],
+        ];
+        $clientConnection->on('close', function () use ($clientResource, $state) {
+            $state->closed = true;
+            $this->untrackMasterResource($clientResource);
+            if($state->child !== null) {
+                $state->child->close();
+            }
+        });
+
+        $this->connectToChild($clientConnection, $connector, $state);
+    }
+
+    /**
+     * Connect the client to a live child, try the next one on error, answer 502/503 when none is left
+     *
+     * @param Connection         $clientConnection
+     * @param ConnectorInterface $connector
+     * @param \stdClass          $state
+     */
+    private function connectToChild(Connection $clientConnection, ConnectorInterface $connector, \stdClass $state)
+    {
+        $threadKey = $this->pickChild($state->tried);
+        if($threadKey === null) {
+            $this->answerAndClose($clientConnection, empty($state->tried) ? 503 : 502);
+
+            return;
+        }
+        $state->tried[$threadKey] = true;
+        $childPort = json_decode($threadKey, true)['port'];
+
+        $this->pendingConnects++;
+        $connector->create($this->childHost, $childPort)->then(function (reactStream $childStream) use ($clientConnection, $state) {
+            $this->pendingConnects--;
+            if($state->closed) {
+                $childStream->close();
+
+                return;
+            }
+            try {
+                $childResource = $childStream->stream;
+                $this->trackMasterResource($childResource);
+                $state->child = $childStream;
+                $childStream->on('close', function () use ($clientConnection, $childResource, $state) {
+                    $this->untrackMasterResource($childResource);
+                    $state->child = null;
+                    // flush what the child sent, then close: the child ended the response or died
+                    $clientConnection->end();
+                });
+                Util::pipe($childStream, $clientConnection, ['end' => false]);
+                Util::pipe($clientConnection, $childStream, ['end' => false]);
+                $clientConnection->resume();
+            } catch(\Throwable $e) {
+                error_log("[MASTER] proxy error: {$e->getMessage()}");
+                $childStream->close();
+                $clientConnection->close();
+            }
+        }, function ($error) use ($clientConnection, $connector, $state, $childPort) {
+            $this->pendingConnects--;
+            if($state->closed) {
+
+                return;
+            }
+            $message = $error instanceof \Throwable ? $error->getMessage() : (string)$error;
+            $this->masterLog("connect:{$childPort}", "[MASTER] unable to connect to child {$this->childHost}:{$childPort}: {$message}");
+            $this->connectToChild($clientConnection, $connector, $state);
+        });
+    }
+
+    /**
+     * Random live child, not tried yet for this client
+     *
+     * @param array $tried
+     *
+     * @return string|null thread key
+     */
+    private function pickChild(array $tried)
+    {
+        $keys = array_keys($this->threads);
+        shuffle($keys);
+        foreach($keys as $threadKey) {
+            if(!isset($tried[$threadKey]) && $this->threads[$threadKey]->isAlive()) {
+
+                return $threadKey;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param Connection $clientConnection
+     * @param int        $code
+     */
+    private function answerAndClose(Connection $clientConnection, $code)
+    {
+        $reason = $code === 503 ? 'Service Unavailable' : 'Bad Gateway';
+        $this->masterLog("answer:{$code}", "[MASTER] {$code} {$reason}: no child accepted the connection");
+        $body = "{$code} {$reason}\n";
+        $response = "HTTP/1.1 {$code} {$reason}\r\nContent-Type: text/plain\r\nContent-Length: " . strlen($body) . "\r\nConnection: close\r\n\r\n{$body}";
+        // answer after the request arrived: clients drop a response sent before the request, and closing a socket
+        // with unread data sends RST instead of the response
+        $timer = null;
+        $answer = function () use ($clientConnection, $response, &$timer) {
+            if($timer !== null) {
+                $timer->cancel();
+                $timer = null;
+            }
+            $clientConnection->end($response);
+        };
+        $clientConnection->on('data', $answer);
+        $timer = $this->masterLoop->addTimer(1.0, $answer);
+        $clientConnection->resume();
+    }
+
+    /**
+     * error_log() at most once a second per key, with the number of suppressed messages
+     *
+     * @param string $key
+     * @param string $message
+     */
+    private function masterLog($key, $message)
+    {
+        $now = time();
+        if(!isset($this->masterLogState[$key])) {
+            $this->masterLogState[$key] = ['time' => 0, 'suppressed' => 0];
+        }
+        $state = &$this->masterLogState[$key];
+        if($state['time'] === $now) {
+            $state['suppressed']++;
+
+            return;
+        }
+        error_log($message . ($state['suppressed'] > 0 ? " (+{$state['suppressed']} more since last message)" : ''));
+        $state = ['time' => $now, 'suppressed' => 0];
+    }
+
+    /**
+     * Remember a socket of the master server: children forked from the master loop close their copies
+     *
+     * @param resource $resource
+     */
+    private function trackMasterResource($resource)
+    {
+        if(is_resource($resource)) {
+            $this->masterResources[(int)$resource] = $resource;
+        }
+    }
+
+    /**
+     * @param resource $resource
+     */
+    private function untrackMasterResource($resource)
+    {
+        unset($this->masterResources[(int)$resource]);
+    }
+
+    /**
+     * In a child: close the sockets inherited from the master server
+     *
+     * A copy kept by the child holds the TCP connection open after the master closes it, and the client hangs.
+     */
+    private function closeMasterResources()
+    {
+        foreach($this->masterResources as $resource) {
+            if(is_resource($resource)) {
+                fclose($resource);
+            }
+        }
+        $this->masterResources = [];
     }
 
     public function childServer($addr)
@@ -279,6 +440,8 @@ abstract class run
         $this->port = $bindTo['port'];
 
         cli_set_process_title("mpcmf/console server:run/child -b {$this->childHost} -p {$this->port}");
+
+        $this->closeMasterResources();
 
 // @FIX: nobody permissions tmp
 //        posix_setgid(99);
