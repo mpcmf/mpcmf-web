@@ -169,6 +169,8 @@ abstract class run
 
     private $handledRequests = 0;
 
+    private $childPrepared = false;
+
     /**
      * @param float $checkThreadsTimerInterval
      */
@@ -182,7 +184,10 @@ abstract class run
      *
      * Child: SIGTERM/SIGINT stop accepting, the accepted requests are finished, exit code 0.
      * Master: forwards SIGTERM to the children, waits for them without starting new ones and exits with 0.
-     * A repeated SIGTERM/SIGINT exits at once.
+     * A repeated SIGTERM/SIGINT to the master exits it at once; children ignore repeated signals (the master forwards
+     * SIGTERM they may have got from the process manager already), their deadline applies.
+     *
+     * Needs the base childServer() (and masterServer() with -m): with an overridden one the old behaviour is kept.
      *
      * @param bool $enabled
      */
@@ -282,7 +287,9 @@ abstract class run
         }
         $this->masterPid = getmypid();
         $this->gracefulStopActive = $this->gracefulStop && class_exists(gracefulStop::class) && method_exists(thread::class, 'setGracefulStop');
+        $this->checkOverrides($input);
         $this->prepareThreads($input);
+        $this->checkThreadsGraceful();
         if($this->gracefulRecycle) {
             $this->openSharedSockets();
         }
@@ -369,11 +376,72 @@ abstract class run
     }
 
     /**
+     * Graceful stop and recycle are implemented in the base childServer()/masterServer(): keep the old behaviour
+     * for subclasses which override them
+     *
+     * @param InputInterface $input
+     */
+    private function checkOverrides(InputInterface $input)
+    {
+        $methods = ['childServer'];
+        if($input->getOption('master-server')) {
+            $methods[] = 'masterServer';
+        }
+        $overridden = [];
+        foreach($methods as $method) {
+            if((new \ReflectionMethod($this, $method))->getDeclaringClass()->getName() !== self::class) {
+                $overridden[] = "{$method}()";
+            }
+        }
+        if(empty($overridden)) {
+
+            return;
+        }
+        $overridden = implode(', ', $overridden);
+        if($this->gracefulStopActive) {
+            $this->gracefulStopActive = false;
+            $this->output->writeln("<error>[MASTER]</error> Graceful stop is disabled: {$overridden} overridden by " . static::class);
+        }
+        if($this->gracefulRecycle && strpos($overridden, 'childServer') !== false) {
+            $this->gracefulRecycle = false;
+            $this->output->writeln("<error>[MASTER]</error> Graceful recycle is disabled: childServer() overridden by " . static::class);
+        }
+    }
+
+    /**
+     * Threads created by an overridden prepareThreads() are not graceful: then none is, the master would kill them
+     */
+    private function checkThreadsGraceful()
+    {
+        if(!$this->gracefulStopActive) {
+
+            return;
+        }
+        $isGraceful = \Closure::bind(function () {
+            return $this->gracefulStop;
+        }, null, thread::class);
+        foreach($this->threads as $thread) {
+            if(!$isGraceful->call($thread)) {
+                $this->gracefulStopActive = false;
+                $this->output->writeln('<error>[MASTER]</error> Graceful stop is disabled: prepareThreads() of ' . static::class . ' creates threads without it');
+                foreach($this->threads as $anyThread) {
+                    $anyThread->setGracefulStop(false);
+                }
+
+                return;
+            }
+        }
+    }
+
+    /**
      * @return thread
      */
     private function createThread()
     {
-        $thread = new thread([$this, 'childServer']);
+        $thread = new thread(function ($addr) {
+            $this->prepareChildProcess(json_decode($addr, true)['port']);
+            $this->childServer($addr);
+        });
         if($this->gracefulStopActive) {
             // the master stops children itself instead of killing them on SIGTERM
             $thread->setGracefulStop(true);
@@ -849,22 +917,26 @@ abstract class run
         $this->masterResources = [];
     }
 
-    public function childServer($addr)
+    /**
+     * Child: drop what belongs to the master, set up the stop signals; before childServer(), once
+     *
+     * @param int|string $port
+     */
+    private function prepareChildProcess($port)
     {
-        $bindTo = json_decode($addr, true);
-        $this->childHost = $bindTo['host'];
-        $this->port = $bindTo['port'];
+        if($this->childPrepared) {
 
-        cli_set_process_title("mpcmf/console server:run/child -b {$this->childHost} -p {$this->port}");
+            return;
+        }
+        $this->childPrepared = true;
 
         $this->closeMasterResources();
-        $sharedSocket = $this->sharedSockets[$this->port] ?? null;
-        foreach($this->sharedSockets as $port => $socket) {
-            if($port != $this->port && is_resource($socket)) {
+        foreach($this->sharedSockets as $sharedPort => $socket) {
+            if($sharedPort != $port && is_resource($socket)) {
                 fclose($socket);
+                unset($this->sharedSockets[$sharedPort]);
             }
         }
-        $this->sharedSockets = [];
         if(isset($this->notifySockets[0])) {
             fclose($this->notifySockets[0]);
             unset($this->notifySockets[0]);
@@ -875,6 +947,18 @@ abstract class run
             // a bit later than our own deadline: it fires even if the loop is blocked by a request
             gracefulStop::enable((int)ceil($this->gracefulStopTimeout) + 2);
         }
+    }
+
+    public function childServer($addr)
+    {
+        $bindTo = json_decode($addr, true);
+        $this->childHost = $bindTo['host'];
+        $this->port = $bindTo['port'];
+
+        cli_set_process_title("mpcmf/console server:run/child -b {$this->childHost} -p {$this->port}");
+
+        $this->prepareChildProcess($this->port);
+        $sharedSocket = $this->sharedSockets[$this->port] ?? null;
 
 // @FIX: nobody permissions tmp
 //        posix_setgid(99);
