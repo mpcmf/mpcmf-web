@@ -172,6 +172,13 @@ abstract class run
     private $childPrepared = false;
 
     /**
+     * Child: recycle memory limit, set after the first request
+     *
+     * @var int|null
+     */
+    private $childRecycleMemoryLimit;
+
+    /**
      * Child: the application bootstrap in app() succeeded
      *
      * @var bool
@@ -587,7 +594,17 @@ abstract class run
     private function openSharedSockets()
     {
         foreach($this->childPorts as $port => $value) {
-            $this->sharedSockets[$port] = listeningSocketServer::listen($this->childHost, $port);
+            // children of a killed master leave within a second (they check the master), wait for them a bit
+            for($deadline = microtime(true) + 5.0; ; usleep(200000)) {
+                try {
+                    $this->sharedSockets[$port] = listeningSocketServer::listen($this->childHost, $port);
+                    break;
+                } catch(\RuntimeException $e) {
+                    if(microtime(true) > $deadline) {
+                        throw $e;
+                    }
+                }
+            }
         }
         $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
         if($pair === false) {
@@ -1023,6 +1040,7 @@ abstract class run
             }
 
             profiler::resetStack();
+            $this->handledRequests++;
 
             return new Promise(function ($resolve, $reject) use ($request) {
                 /** @var Stream $body */
@@ -1083,7 +1101,6 @@ abstract class run
      */
     private function afterConnectionClosed()
     {
-        $this->handledRequests++;
         if($this->childStopping) {
             $this->finishChildIfIdle();
 
@@ -1096,7 +1113,16 @@ abstract class run
                 return;
             }
             $memoryUsage = memory_get_usage(true);
-            if($memoryUsage > $this->getRecycleMemoryLimit()) {
+            if($this->childRecycleMemoryLimit === null && $this->handledRequests > 0) {
+                $this->childRecycleMemoryLimit = $this->getRecycleMemoryLimit();
+                // the first request loads the application: a limit at or below that would recycle on every request
+                $minimum = $memoryUsage + max(8 << 20, intdiv($memoryUsage, 4));
+                if($this->childRecycleMemoryLimit < $minimum) {
+                    $this->output->writeln("<error>[CHILD]</error> Recycle memory limit {$this->childRecycleMemoryLimit} is too low: {$memoryUsage} after the first request, using {$minimum}; raise setMaxMemoryUsage()/memory_limit");
+                    $this->childRecycleMemoryLimit = $minimum;
+                }
+            }
+            if($this->childRecycleMemoryLimit !== null && $memoryUsage > $this->childRecycleMemoryLimit) {
                 $this->retireChild("memory usage {$memoryUsage}");
             }
 
