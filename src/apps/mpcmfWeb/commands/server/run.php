@@ -131,6 +131,45 @@ abstract class run
     private $childStopForced = false;
 
     /**
+     * Zero-loss recycle of children, see setGracefulRecycle()
+     *
+     * @var bool
+     */
+    private $gracefulRecycle = false;
+
+    /**
+     * Recycle a child after this many requests, 0 - no limit
+     *
+     * @var int
+     */
+    private $maxRequests = 0;
+
+    /**
+     * Listening sockets opened by the master and shared with the children, by port
+     *
+     * @var resource[]
+     */
+    private $sharedSockets = [];
+
+    /**
+     * Children tell the master they retire through this socket pair: [master end, children end]
+     *
+     * @var resource[]
+     */
+    private $notifySockets = [];
+
+    private $notifyBuffer = '';
+
+    /**
+     * Retiring children still finishing their requests, replaced already
+     *
+     * @var thread[]
+     */
+    private $retiredThreads = [];
+
+    private $handledRequests = 0;
+
+    /**
      * @param float $checkThreadsTimerInterval
      */
     public function setCheckThreadsTimerInterval($checkThreadsTimerInterval)
@@ -160,6 +199,33 @@ abstract class run
     public function setGracefulStopTimeout($seconds)
     {
         $this->gracefulStopTimeout = max(1.0, (float)$seconds);
+    }
+
+    /**
+     * Zero-loss recycle of children, off by default
+     *
+     * The master opens the listening socket of every port before forking, children accept from it. A child leaves
+     * after max requests (setMaxRequests()) or when its memory usage is over the soft limit: maxMemoryUsage
+     * (setMaxMemoryUsage()), at most 80% of memory_limit. It stops accepting, tells the master, finishes
+     * the accepted requests and exits; the master starts the replacement on the same socket at once, new connections
+     * wait in the kernel queue meanwhile. Children leave when the master is gone. The listening sockets are opened
+     * at start, a busy port fails the start.
+     *
+     * @param bool $enabled
+     */
+    public function setGracefulRecycle($enabled)
+    {
+        $this->gracefulRecycle = (bool)$enabled;
+    }
+
+    /**
+     * With graceful recycle: recycle a child after this many requests, 0 - no limit (default)
+     *
+     * @param int $maxRequests
+     */
+    public function setMaxRequests($maxRequests)
+    {
+        $this->maxRequests = max(0, (int)$maxRequests);
     }
 
     /**
@@ -217,6 +283,9 @@ abstract class run
         $this->masterPid = getmypid();
         $this->gracefulStopActive = $this->gracefulStop && class_exists(gracefulStop::class) && method_exists(thread::class, 'setGracefulStop');
         $this->prepareThreads($input);
+        if($this->gracefulRecycle) {
+            $this->openSharedSockets();
+        }
         $this->setupMasterSignals();
         $this->checkThreads();
 
@@ -227,7 +296,14 @@ abstract class run
             while(!$this->masterFinished) {
                 $this->checkThreads();
                 // interrupted by signals: SIGCHLD, stop requests
-                usleep((int)($this->checkThreadsTimerInterval * 1000000));
+                if(isset($this->notifySockets[0])) {
+                    $read = [$this->notifySockets[0]];
+                    $write = $except = null;
+                    $seconds = (int)$this->checkThreadsTimerInterval;
+                    @stream_select($read, $write, $except, $seconds, (int)(($this->checkThreadsTimerInterval - $seconds) * 1000000));
+                } else {
+                    usleep((int)($this->checkThreadsTimerInterval * 1000000));
+                }
                 $this->masterTick();
             }
         }
@@ -238,6 +314,12 @@ abstract class run
 
     public function checkThreads()
     {
+        foreach($this->retiredThreads as $key => $thread) {
+            if(!$thread->isAlive()) {
+                $this->output->writeln("<error>[MASTER]</error> Retired child {$thread->getPid()} exited with code " . json_encode($thread->getExitCode()));
+                unset($this->retiredThreads[$key]);
+            }
+        }
         if($this->shuttingDown) {
 
             return;
@@ -334,6 +416,7 @@ abstract class run
     private function masterTick()
     {
         pcntl_signal_dispatch();
+        $this->readRetireNotifications();
         if(!$this->shuttingDown) {
             $stopRequested = $this->gracefulStopActive ? gracefulStop::isRequested() : $this->legacyStopRequested;
             if($stopRequested) {
@@ -360,6 +443,13 @@ abstract class run
             $this->masterSocketServer->close();
             $this->masterSocketServer = null;
         }
+        // children keep their copies until they accepted the queued connections
+        foreach($this->sharedSockets as $socket) {
+            if(is_resource($socket)) {
+                fclose($socket);
+            }
+        }
+        $this->sharedSockets = [];
     }
 
     private function continueShutdown()
@@ -406,7 +496,116 @@ abstract class run
      */
     private function getChildThreads()
     {
-        return array_values($this->threads);
+        return array_merge(array_values($this->threads), array_values($this->retiredThreads));
+    }
+
+    /**
+     * Master: open the listening sockets the children share, and the retire notification channel
+     *
+     * @throws \RuntimeException
+     */
+    private function openSharedSockets()
+    {
+        foreach($this->childPorts as $port => $value) {
+            $this->sharedSockets[$port] = listeningSocketServer::listen($this->childHost, $port);
+        }
+        $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        if($pair === false) {
+            throw new \RuntimeException('Unable to create the retire notification socket pair');
+        }
+        stream_set_blocking($pair[0], false);
+        $this->notifySockets = $pair;
+        $this->output->writeln('<error>[MASTER]</error> Graceful recycle: listening on ' . implode(', ', array_keys($this->sharedSockets)) . ', max requests: ' . ($this->maxRequests ?: 'unlimited') . ', memory: ' . $this->getRecycleMemoryLimit());
+    }
+
+    /**
+     * Master: start replacements of retiring children
+     */
+    private function readRetireNotifications()
+    {
+        if(!isset($this->notifySockets[0])) {
+
+            return;
+        }
+        while(($chunk = @fread($this->notifySockets[0], 8192)) !== false && $chunk !== '') {
+            $this->notifyBuffer .= $chunk;
+        }
+        while(($eol = strpos($this->notifyBuffer, "\n")) !== false) {
+            $line = substr($this->notifyBuffer, 0, $eol);
+            $this->notifyBuffer = (string)substr($this->notifyBuffer, $eol + 1);
+            [$pid, $reason] = array_pad(explode(' ', $line, 2), 2, '');
+            $this->replaceRetiringChild((int)$pid, $reason);
+        }
+    }
+
+    /**
+     * @param int    $pid
+     * @param string $reason
+     */
+    private function replaceRetiringChild($pid, $reason)
+    {
+        if($this->shuttingDown) {
+
+            return;
+        }
+        foreach($this->threads as $addr => $thread) {
+            if($thread->getPid() !== $pid) {
+                continue;
+            }
+            $this->retiredThreads[] = $thread;
+            $this->threads[$addr] = $this->createThread();
+            try {
+                $this->threads[$addr]->start($addr);
+            } catch(\Exception $e) {
+                error_log("Unable to start server, cuz exception: {$e->getMessage()}\n{$e->getTraceAsString()}");
+            }
+            $this->output->writeln("<error>[MASTER]</error> Child {$pid} retiring ({$reason}), replacement {$this->threads[$addr]->getPid()} started");
+
+            return;
+        }
+    }
+
+    /**
+     * Soft memory limit of graceful recycle, bytes
+     *
+     * @return int
+     */
+    private function getRecycleMemoryLimit()
+    {
+        $limit = (int)$this->maxMemoryUsage;
+        $memoryLimit = $this->parseIniBytes(ini_get('memory_limit'));
+        if($memoryLimit > 0) {
+            $limit = min($limit, (int)($memoryLimit * 0.8));
+        }
+
+        return $limit;
+    }
+
+    /**
+     * @param string|false $value
+     *
+     * @return int bytes, -1 for no limit
+     */
+    private function parseIniBytes($value)
+    {
+        $value = trim((string)$value);
+        if($value === '' || $value === '-1') {
+
+            return -1;
+        }
+        $number = (int)$value;
+        switch(strtolower(substr($value, -1))) {
+            case 'g':
+                $number *= 1024;
+            // no break
+            case 'm':
+                $number *= 1024;
+            // no break
+            case 'k':
+                $number *= 1024;
+        }
+
+        return $number;
     }
 
     protected function parseAddr($addr)
@@ -446,6 +645,11 @@ abstract class run
         $output->writeln("<error>[MASTER]</error> Starting server on {$bindMasterTo['host']}:{$bindMasterTo['port']}");
 
         $loop->addPeriodicTimer($this->checkThreadsTimerInterval, [$this, 'checkThreads']);
+        if(isset($this->notifySockets[0])) {
+            $loop->addReadStream($this->notifySockets[0], function () {
+                $this->masterTick();
+            });
+        }
         // a signal only interrupts stream_select(), stop requests and exited children are checked here
         $loop->addPeriodicTimer(0.1, function () use ($loop) {
             $this->masterTick();
@@ -551,14 +755,22 @@ abstract class run
     {
         $keys = array_keys($this->threads);
         shuffle($keys);
+        $queued = null;
         foreach($keys as $threadKey) {
-            if(!isset($tried[$threadKey]) && $this->threads[$threadKey]->isAlive()) {
+            if(isset($tried[$threadKey])) {
+                continue;
+            }
+            if($this->threads[$threadKey]->isAlive()) {
 
                 return $threadKey;
             }
+            // a shared socket keeps the connection in the queue until the child is started again
+            if($queued === null && isset($this->sharedSockets[json_decode($threadKey, true)['port']])) {
+                $queued = $threadKey;
+            }
         }
 
-        return null;
+        return $queued;
     }
 
     /**
@@ -652,6 +864,17 @@ abstract class run
         cli_set_process_title("mpcmf/console server:run/child -b {$this->childHost} -p {$this->port}");
 
         $this->closeMasterResources();
+        $sharedSocket = $this->sharedSockets[$this->port] ?? null;
+        foreach($this->sharedSockets as $port => $socket) {
+            if($port != $this->port && is_resource($socket)) {
+                fclose($socket);
+            }
+        }
+        $this->sharedSockets = [];
+        if(isset($this->notifySockets[0])) {
+            fclose($this->notifySockets[0]);
+            unset($this->notifySockets[0]);
+        }
         // the master wakes up on SIGCHLD, the application in the child must see the default behaviour
         pcntl_signal(SIGCHLD, SIG_DFL);
         if($this->gracefulStopActive) {
@@ -667,7 +890,7 @@ abstract class run
 
         $loop = Factory::create();
         $this->childLoop = $loop;
-        $socket = new listeningSocketServer(listeningSocketServer::listen($this->childHost, $this->port), $loop, false);
+        $socket = new listeningSocketServer($sharedSocket ?? listeningSocketServer::listen($this->childHost, $this->port), $loop, false);
         $this->childSocket = $socket;
         $http = new reactHttpServer(function (ServerRequest $request) {
             if(MPCMF_DEBUG) {
@@ -718,6 +941,14 @@ abstract class run
                 }
             });
         }
+        if($sharedSocket !== null) {
+            // an orphan would serve old code: leave when the master is gone
+            $loop->addPeriodicTimer(1.0, function () {
+                if(posix_getppid() !== $this->masterPid) {
+                    $this->stopChild('master is gone');
+                }
+            });
+        }
         $socket->resume();
 
         $this->output->writeln("<error>[CHILD]</error> Starting child server on {$this->childHost}:{$this->port}");
@@ -734,8 +965,22 @@ abstract class run
      */
     private function afterConnectionClosed()
     {
+        $this->handledRequests++;
         if($this->childStopping) {
             $this->finishChildIfIdle();
+
+            return;
+        }
+        if(isset($this->notifySockets[1])) {
+            if($this->maxRequests > 0 && $this->handledRequests >= $this->maxRequests) {
+                $this->retireChild("{$this->handledRequests} requests");
+
+                return;
+            }
+            $memoryUsage = memory_get_usage(true);
+            if($memoryUsage > $this->getRecycleMemoryLimit()) {
+                $this->retireChild("memory usage {$memoryUsage}");
+            }
 
             return;
         }
@@ -766,6 +1011,35 @@ abstract class run
         $accepted = $this->childSocket->acceptPending();
         $this->childSocket->close();
         $this->output->writeln("<error>[CHILD]</error> Stopping child server on {$this->childHost}:{$this->port} ({$reason}), connections: {$this->openConnections}, accepted from queue: {$accepted}");
+
+        $this->childLoop->addTimer($this->gracefulStopTimeout, function () {
+            $this->output->writeln("<error>[CHILD]</error> Child server on {$this->childHost}:{$this->port} did not finish in {$this->gracefulStopTimeout}s, connections left: {$this->openConnections}");
+            $this->childStopForced = true;
+            $this->childLoop->stop();
+        });
+        $this->finishChildIfIdle();
+    }
+
+    /**
+     * Child with a shared socket: stop accepting, let the master start the replacement, finish the requests
+     *
+     * The queued connections stay in the shared socket for the replacement.
+     *
+     * @param string $reason
+     */
+    private function retireChild($reason)
+    {
+        if($this->childStopping) {
+
+            return;
+        }
+        $this->childStopping = true;
+        $this->childSocket->close();
+        $pid = getmypid();
+        if(@fwrite($this->notifySockets[1], "{$pid} {$reason}\n") === false) {
+            error_log("[CHILD] Unable to notify the master about retirement of {$pid}");
+        }
+        $this->output->writeln("<error>[CHILD]</error> Child {$pid} on {$this->childHost}:{$this->port} retiring ({$reason}), connections: {$this->openConnections}");
 
         $this->childLoop->addTimer($this->gracefulStopTimeout, function () {
             $this->output->writeln("<error>[CHILD]</error> Child server on {$this->childHost}:{$this->port} did not finish in {$this->gracefulStopTimeout}s, connections left: {$this->openConnections}");
