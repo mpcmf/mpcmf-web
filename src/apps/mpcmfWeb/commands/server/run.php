@@ -131,11 +131,28 @@ abstract class run
     private $childStopForced = false;
 
     /**
-     * Zero-loss recycle of children, see setGracefulRecycle()
+     * Zero-loss recycle of children, see setGracefulRecycle(): null - default (shared sockets, memory recycle only
+     * with oomKiller), true - explicit (memory recycle by the soft limit), false - old per-child sockets
+     *
+     * @var bool|null
+     */
+    private $gracefulRecycle;
+
+    /**
+     * Listening sockets are opened by the master and shared with the children (decided at start)
      *
      * @var bool
      */
-    private $gracefulRecycle = false;
+    private $sharedSocketsActive = false;
+
+    /**
+     * Child: usage after the first request plus a margin, the memory limit of recycle is not lower
+     *
+     * @var int|null
+     */
+    private $recycleMemoryMinimum;
+
+    private $recycleMemoryWarned = false;
 
     /**
      * Recycle a child after this many requests, 0 - no limit
@@ -171,12 +188,6 @@ abstract class run
 
     private $childPrepared = false;
 
-    /**
-     * Child: recycle memory limit, set after the first request
-     *
-     * @var int|null
-     */
-    private $childRecycleMemoryLimit;
 
     /**
      * Child: the application bootstrap in app() succeeded
@@ -228,14 +239,25 @@ abstract class run
     }
 
     /**
-     * Zero-loss recycle of children, off by default
+     * Zero-loss restart of children
      *
-     * The master opens the listening socket of every port before forking, children accept from it. A child leaves
-     * after max requests (setMaxRequests()) or when its memory usage is over the soft limit: maxMemoryUsage
-     * (setMaxMemoryUsage()), at most 80% of memory_limit. It stops accepting, tells the master, finishes
-     * the accepted requests and exits; the master starts the replacement on the same socket at once, new connections
-     * wait in the kernel queue meanwhile. Children leave when the master is gone. The listening sockets are opened
-     * at start, a busy port fails the start.
+     * By default (not called) the master opens the listening socket of every port before forking and the children
+     * accept from it: while a child is restarted (crash, memory_limit, recycle) new connections wait in the kernel queue
+     * instead of being refused. A child retires gracefully - stops accepting, tells the master, finishes the accepted
+     * requests, exits with 0, the master starts the replacement on the same socket at once:
+     * - after max requests (setMaxRequests(), off by default);
+     * - with oomKiller (setOomKillerEnabled()): when memory_get_usage(true) is over maxMemoryUsage after a response,
+     *   the values the child has at that moment count (they may be set in getBaseApplication()).
+     * Without oomKiller memory is not checked, as before. A memory limit at or below the usage after the first
+     * request is raised above it with a warning, so a child is not recycled after every request.
+     * Children leave when the master is gone. The listening sockets are opened at start: a busy port fails the start
+     * (after up to 5 s of waiting for children of a killed master).
+     *
+     * true: the same, and memory is always checked against the soft limit min(maxMemoryUsage, 80% memory_limit),
+     * with or without oomKiller.
+     * false: old per-child sockets, every child binds its port; oomKiller closes the socket (refused until restart).
+     *
+     * An overridden childServer() always uses the old per-child sockets.
      *
      * @param bool $enabled
      */
@@ -245,7 +267,8 @@ abstract class run
     }
 
     /**
-     * With graceful recycle: recycle a child after this many requests, 0 - no limit (default)
+     * Recycle a child gracefully after this many requests, 0 - no limit (default); needs the shared sockets
+     * (default, see setGracefulRecycle())
      *
      * @param int $maxRequests
      */
@@ -307,11 +330,12 @@ abstract class run
             @mkdir($smartyDir, 0777, true);
         }
         $this->masterPid = getmypid();
+        $this->sharedSocketsActive = $this->gracefulRecycle !== false;
         $this->gracefulStopActive = $this->gracefulStop && class_exists(gracefulStop::class) && method_exists(thread::class, 'setGracefulStop');
         $this->checkOverrides($input);
         $this->prepareThreads($input);
         $this->checkThreadsGraceful();
-        if($this->gracefulRecycle) {
+        if($this->sharedSocketsActive) {
             $this->openSharedSockets();
         }
         $this->setupMasterSignals();
@@ -427,8 +451,8 @@ abstract class run
             $this->gracefulStopActive = false;
             $this->output->writeln("<error>[MASTER]</error> Graceful stop is disabled: {$overridden} overridden by " . static::class);
         }
-        if($this->gracefulRecycle && strpos($overridden, 'childServer') !== false) {
-            $this->gracefulRecycle = false;
+        if($this->sharedSocketsActive && strpos($overridden, 'childServer') !== false) {
+            $this->sharedSocketsActive = false;
             $this->output->writeln("<error>[MASTER]</error> Graceful recycle is disabled: childServer() overridden by " . static::class);
         }
     }
@@ -614,7 +638,12 @@ abstract class run
         }
         stream_set_blocking($pair[0], false);
         $this->notifySockets = $pair;
-        $this->output->writeln('<error>[MASTER]</error> Graceful recycle: listening on ' . implode(', ', array_keys($this->sharedSockets)) . ', max requests: ' . ($this->maxRequests ?: 'unlimited') . ', memory: ' . $this->getRecycleMemoryLimit());
+        if($this->gracefulRecycle === true) {
+            $memory = 'soft limit ' . $this->getRecycleMemoryLimit();
+        } else {
+            $memory = 'with oomKiller of the child';
+        }
+        $this->output->writeln('<error>[MASTER]</error> Shared listening sockets: ' . implode(', ', array_keys($this->sharedSockets)) . ', recycle after requests: ' . ($this->maxRequests ?: 'off') . ', by memory: ' . $memory);
     }
 
     /**
@@ -1114,18 +1143,33 @@ abstract class run
 
                 return;
             }
-            $memoryUsage = memory_get_usage(true);
-            if($this->childRecycleMemoryLimit === null && $this->handledRequests > 0) {
-                $this->childRecycleMemoryLimit = $this->getRecycleMemoryLimit();
-                // the first request loads the application: a limit at or below that would recycle on every request
-                $minimum = $memoryUsage + max(8 << 20, intdiv($memoryUsage, 4));
-                if($this->childRecycleMemoryLimit < $minimum) {
-                    $this->output->writeln("<error>[CHILD]</error> Recycle memory limit {$this->childRecycleMemoryLimit} is too low: {$memoryUsage} after the first request, using {$minimum}; raise setMaxMemoryUsage()/memory_limit");
-                    $this->childRecycleMemoryLimit = $minimum;
-                }
+            // explicit recycle: soft limit; default: only with oomKiller, its limit. Runtime values of the child count:
+            // an application may enable oomKiller in getBaseApplication(), which runs in the child
+            if($this->gracefulRecycle === true) {
+                $limit = $this->getRecycleMemoryLimit();
+            } elseif($this->oomKillerEnabled) {
+                $limit = (int)$this->maxMemoryUsage;
+            } else {
+
+                return;
             }
-            if($this->childRecycleMemoryLimit !== null && $memoryUsage > $this->childRecycleMemoryLimit) {
-                $this->retireChild("memory usage {$memoryUsage}");
+            $memoryUsage = memory_get_usage(true);
+            if($this->recycleMemoryMinimum === null && $this->handledRequests > 0) {
+                // the first request loads the application: a limit at or below that would recycle on every request
+                $this->recycleMemoryMinimum = $memoryUsage + max(8 << 20, intdiv($memoryUsage, 4));
+            }
+            if($this->recycleMemoryMinimum !== null && $limit < $this->recycleMemoryMinimum) {
+                if(!$this->recycleMemoryWarned) {
+                    $this->recycleMemoryWarned = true;
+                    $this->output->writeln("<error>[CHILD]</error> Recycle memory limit {$limit} is too low: {$memoryUsage} after the first request, using {$this->recycleMemoryMinimum}; raise setMaxMemoryUsage()/memory_limit");
+                }
+                $limit = $this->recycleMemoryMinimum;
+            }
+            if($memoryUsage > $limit) {
+                if($this->gracefulRecycle !== true) {
+                    $this->output->writeln("Child stopped, cuz exceed memory limit ({$memoryUsage})");
+                }
+                $this->retireChild("memory usage {$memoryUsage} > {$limit}");
             }
 
             return;
@@ -1530,6 +1574,9 @@ abstract class run
     }
 
     /**
+     * Restart a child when memory_get_usage(true) is over maxMemoryUsage after a response: with the shared sockets
+     * (default) it retires gracefully, with setGracefulRecycle(false) it closes its listening socket (old behaviour)
+     *
      * @param bool $oomKillerEnabled
      */
     public function setOomKillerEnabled($oomKillerEnabled)
