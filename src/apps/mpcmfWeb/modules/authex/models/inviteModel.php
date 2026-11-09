@@ -47,7 +47,7 @@ class inviteModel
         return md5($email . microtime(true));
     }
 
-    public function sendInvite(userModel $refererModel = null)
+    public function sendInvite(?userModel $refererModel = null)
     {
         $email = $this->getEmail();
         $inviteString = $this->getInvite();

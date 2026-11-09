@@ -387,7 +387,7 @@ class userMapper
      * @throws \mpcmf\system\acl\exception\aclException
      * @throws mapperException
      */
-    protected function relatedMapperCriteria($fieldName, modelBase $model = null)
+    protected function relatedMapperCriteria($fieldName, ?modelBase $model = null)
     {
         $aclManager = aclManager::getInstance();
 

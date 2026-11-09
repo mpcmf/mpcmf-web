@@ -750,7 +750,7 @@ BODY;
      * @return array
      * @throws modelException
      */
-    protected function generateToken(userModel $user, tokenModel $tokenModel = null)
+    protected function generateToken(userModel $user, ?tokenModel $tokenModel = null)
     {
         if (!isset($tokenModel)) {
             $tokenData = [

@@ -27,7 +27,7 @@ class groupModel
 
     use singleton;
 
-    public function getUsersByGroup(groupModel $groupModel = null)
+    public function getUsersByGroup(?groupModel $groupModel = null)
     {
         if ($groupModel === null) {
             $groupModel = $this;

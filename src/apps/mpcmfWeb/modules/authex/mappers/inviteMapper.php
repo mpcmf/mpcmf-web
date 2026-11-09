@@ -38,7 +38,7 @@ class inviteMapper
         return 'Invite';
     }
 
-    public function createInvite($input, userModel $refererModel = null)
+    public function createInvite($input, ?userModel $refererModel = null)
     {
         $email = $input['email'];
         $groups = (isset($input['groups']) && is_array($input['groups'])) ? $input['groups'] : [];
