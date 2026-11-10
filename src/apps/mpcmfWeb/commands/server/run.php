@@ -3,7 +3,9 @@
 namespace mpcmf\apps\mpcmfWeb\commands\server;
 
 use GuzzleHttp\Psr7\Uri;
+use mpcmf\apps\mpcmfWeb\commands\server\exception\serverException;
 use mpcmf\apps\mpcmfWeb\libraries\io\multipartParser;
+use mpcmf\apps\mpcmfWeb\libraries\net\exception\netException;
 use mpcmf\apps\mpcmfWeb\libraries\net\listeningSocketServer;
 use mpcmf\apps\mpcmfWeb\mpcmfWeb;
 use mpcmf\system\application\applicationInstance;
@@ -53,13 +55,12 @@ abstract class run
     extends consoleCommandBase
 {
     /**
-     * Seconds a child behind the master proxy waits for the stop request of the master after a stop signal,
-     * see holdChildStopSignals()
+     * Seconds a child holds a stop signal for the master
      */
     const CHILD_STOP_HOLD = 3.0;
 
     /**
-     * The master behind the proxy (-m) asks children to stop with this signal, see holdChildStopSignals()
+     * Signal the master proxy stops the children with
      */
     const CHILD_STOP_SIGNAL = SIGUSR2;
 
@@ -89,22 +90,21 @@ abstract class run
     private $masterConnectTimeout = 3.0;
 
     /**
-     * Master server: DNS server (ip[:port]) to look up the child host on connections, null: the system one
+     * Master server: DNS server (ip[:port]), null - the system one
      *
      * @var string|null
      */
     private $masterDnsServer;
 
     /**
-     * Master server: address the children bind and the master connects them at, the child host (--bind) looked up
-     * once at start; null: the children bind the child host
+     * Master server: child host address looked up at start
      *
      * @var string|null
      */
     private $childBindAddress;
 
     /**
-     * Master server sockets (listening socket, client and child connections) by resource id
+     * Master server sockets by resource id
      *
      * @var resource[]
      */
@@ -112,12 +112,16 @@ abstract class run
 
     private $pendingConnects = 0;
 
-    /** @var LoopInterface|null */
+    /**
+     * @var LoopInterface|null
+     */
     private $masterLoop;
 
     private $masterLogState = [];
 
-    /** @var listeningSocketServer|null */
+    /**
+     * @var listeningSocketServer|null
+     */
     private $masterSocketServer;
 
     /**
@@ -128,7 +132,9 @@ abstract class run
     private $gracefulStop = true;
 
     /**
-     * @var float seconds
+     * Graceful stop deadline of a child, seconds
+     *
+     * @var float
      */
     private $gracefulStopTimeout = 30.0;
 
@@ -147,10 +153,14 @@ abstract class run
     private $childrenStopSent = false;
     private $masterFinished = false;
 
-    /** @var LoopInterface|null */
+    /**
+     * @var LoopInterface|null
+     */
     private $childLoop;
 
-    /** @var listeningSocketServer|null */
+    /**
+     * @var listeningSocketServer|null
+     */
     private $childSocket;
 
     private $openConnections = 0;
@@ -158,22 +168,21 @@ abstract class run
     private $childStopForced = false;
 
     /**
-     * Zero-loss recycle of children, see setGracefulRecycle(): null - default (shared sockets, memory recycle only
-     * with oomKiller), true - explicit (memory recycle by the soft limit), false - old per-child sockets
+     * Zero-loss recycle of children, see setGracefulRecycle()
      *
      * @var bool|null
      */
     private $gracefulRecycle;
 
     /**
-     * Listening sockets are opened by the master and shared with the children (decided at start)
+     * Listening sockets are shared with the children
      *
      * @var bool
      */
     private $sharedSocketsActive = false;
 
     /**
-     * Child: usage after the first request plus a margin, the memory limit of recycle is not lower
+     * Child: lower bound of the recycle memory limit
      *
      * @var int|null
      */
@@ -196,7 +205,7 @@ abstract class run
     private $sharedSockets = [];
 
     /**
-     * Children tell the master they retire through this socket pair: [master end, children end]
+     * Retire notification socket pair: [master end, children end]
      *
      * @var resource[]
      */
@@ -205,34 +214,36 @@ abstract class run
     private $notifyBuffer = '';
 
     /**
-     * Retiring children still finishing their requests, replaced already
+     * Retiring children finishing their requests
      *
      * @var thread[]
      */
     private $retiredThreads = [];
 
     /**
-     * When the retiring children were replaced, by key of retiredThreads
+     * When the retiring children were replaced
      *
      * @var float[]
      */
     private $retiredAt = [];
 
     /**
-     * The master proxies connections to the children (-m), decided at start
+     * The master proxies connections to the children (-m)
      *
      * @var bool
      */
     private $masterProxyActive = false;
 
     /**
-     * Child behind the master proxy: a stop signal held until the master asks to stop (see holdChildStopSignals())
+     * Child behind the master proxy: held stop signal
      *
      * @var int|null
      */
     private $heldStopSignal;
 
     /**
+     * When the stop signal was held
+     *
      * @var float|null
      */
     private $heldStopAt;
@@ -245,7 +256,7 @@ abstract class run
     private $masterStopReceived = false;
 
     /**
-     * Child behind the master proxy: SIGTERM/SIGINT handlers replaced by holdChildStopSignals(), by signal
+     * Child behind the master proxy: replaced stop signal handlers
      *
      * @var callable[]
      */
@@ -278,15 +289,7 @@ abstract class run
     }
 
     /**
-     * Graceful stop, on by default (needs mpcmf\system\threads\gracefulStop in mpcmf-core, without it the old behaviour)
-     *
-     * Child: SIGTERM/SIGINT stop accepting, the accepted requests are finished, exit code 0. Behind the master proxy
-     * (-m) a child waits for the stop request of the master, see holdChildStopSignals().
-     * Master: forwards SIGTERM to the children (SIGUSR2 behind the proxy), waits for them without starting new ones and exits with 0.
-     * A repeated SIGTERM is ignored by the master and the children (process managers repeat it, the master forwards
-     * SIGTERM the children may have got already), the deadlines apply; a repeated SIGINT exits at once.
-     *
-     * Needs the base childServer() (and masterServer() with -m): with an overridden one the old behaviour is kept.
+     * Graceful stop on SIGTERM/SIGINT, on by default
      *
      * @param bool $enabled
      */
@@ -296,7 +299,7 @@ abstract class run
     }
 
     /**
-     * Hard deadline of the graceful stop of a child, seconds; the master kills children 5 s later
+     * Graceful stop deadline of a child, seconds
      *
      * @param float $seconds
      */
@@ -306,25 +309,7 @@ abstract class run
     }
 
     /**
-     * Zero-loss restart of children
-     *
-     * By default (not called) the master opens the listening socket of every port before forking and the children
-     * accept from it: while a child is restarted (crash, memory_limit, recycle) new connections wait in the kernel queue
-     * instead of being refused. A child retires gracefully - stops accepting, tells the master, finishes the accepted
-     * requests, exits with 0, the master starts the replacement on the same socket at once:
-     * - after max requests (setMaxRequests(), off by default);
-     * - with oomKiller (setOomKillerEnabled()): when memory_get_usage(true) is over maxMemoryUsage after a response,
-     *   the values the child has at that moment count (they may be set in getBaseApplication()).
-     * Without oomKiller memory is not checked, as before. A memory limit at or below the usage after the first
-     * request is raised above it with a warning, so a child is not recycled after every request.
-     * Children leave when the master is gone. The listening sockets are opened at start: a busy port fails the start
-     * (after up to 5 s of waiting for children of a killed master).
-     *
-     * true: the same, and memory is always checked against the soft limit min(maxMemoryUsage, 80% memory_limit),
-     * with or without oomKiller.
-     * false: old per-child sockets, every child binds its port; oomKiller closes the socket (refused until restart).
-     *
-     * An overridden childServer() always uses the old per-child sockets.
+     * Zero-loss restart of children on listening sockets shared by the master
      *
      * @param bool $enabled
      */
@@ -334,8 +319,7 @@ abstract class run
     }
 
     /**
-     * Recycle a child gracefully after this many requests, 0 - no limit (default); needs the shared sockets
-     * (default, see setGracefulRecycle())
+     * Recycle a child after this many requests, 0 - no limit
      *
      * @param int $maxRequests
      */
@@ -345,7 +329,7 @@ abstract class run
     }
 
     /**
-     * Master server (-m): timeout of the connection to a child, the next child is tried after it
+     * Master server (-m): timeout of the connection to a child, seconds
      *
      * @param float $seconds
      */
@@ -355,10 +339,9 @@ abstract class run
     }
 
     /**
-     * Master server (-m): DNS server to look up the child host (--bind) on connections instead of
-     * looking it up once at start with the system resolver
+     * Master server (-m): DNS server to look up the child host on connections
      *
-     * @param string|null $server ip[:port], null: look up once at start with the system resolver
+     * @param string|null $server
      */
     public function setMasterDnsServer($server)
     {
@@ -377,7 +360,9 @@ abstract class run
         $this->addOption('bind', 'b', InputOption::VALUE_REQUIRED, 'Host to bind', '127.0.0.1');
         $this->addOption('ports', 'p', InputOption::VALUE_REQUIRED, 'Ports');
         $this->addOption('master-server', 'm', InputOption::VALUE_OPTIONAL, 'Start master server on this host:port');
-        $this->addOption('dns', null, InputOption::VALUE_REQUIRED, 'Master server: DNS server (ip[:port]) to look up the --bind host on connections; by default it is looked up once at start with the system resolver');
+        $this->addOption('dns', null, InputOption::VALUE_REQUIRED,
+            'Master server: DNS server (ip[:port]) to look up the --bind host on connections; '
+            . 'by default it is looked up once at start with the system resolver');
     }
 
     /**
@@ -454,10 +439,11 @@ abstract class run
     {
         foreach($this->retiredThreads as $key => $thread) {
             if(!$thread->isAlive()) {
-                $this->output->writeln("<error>[MASTER]</error> Retired child {$thread->getPid()} exited with code " . json_encode($thread->getExitCode()));
+                $this->output->writeln("<error>[MASTER]</error> Retired child {$thread->getPid()} exited with code "
+                    . json_encode($thread->getExitCode()));
                 unset($this->retiredThreads[$key], $this->retiredAt[$key]);
             } elseif(isset($this->retiredAt[$key]) && microtime(true) - $this->retiredAt[$key] > $this->gracefulStopTimeout + 5) {
-                // its own deadline is a timer of its loop: a request blocking the loop holds it forever
+                // a blocked loop never fires the own deadline of the child
                 $this->output->writeln("<error>[MASTER]</error> Killing retired child {$thread->getPid()}: did not finish in time");
                 posix_kill($thread->getPid(), SIGKILL);
                 unset($this->retiredAt[$key]);
@@ -469,12 +455,13 @@ abstract class run
         }
         foreach($this->threads as $addr => $thread) {
             if(!$thread->isAlive()) {
-                // a child dying right after start is not restarted more often than once a second
+                // restart a crashing child at most once a second
                 if(method_exists($thread, 'getStartedAt') && $thread->getStartedAt() !== null && time() - $thread->getStartedAt() < 1) {
                     continue;
                 }
                 if($thread->getPid() !== null && method_exists($thread, 'getExitCode')) {
-                    $this->output->writeln("<error>[MASTER]</error> Child {$thread->getPid()} exited with code " . json_encode($thread->getExitCode()));
+                    $this->output->writeln("<error>[MASTER]</error> Child {$thread->getPid()} exited with code "
+                        . json_encode($thread->getExitCode()));
                 }
                 //MPCMF_DEBUG && $output->writeln("<error>Starting server on {$addr}</error>");
                 try {
@@ -516,12 +503,11 @@ abstract class run
     }
 
     /**
-     * Graceful stop and recycle are implemented in the base childServer()/masterServer(): keep the old behaviour
-     * for subclasses which override them
+     * Keep the old behaviour for overridden childServer()/masterServer()
      *
      * @param InputInterface $input
      */
-    private function checkOverrides(InputInterface $input)
+    protected function checkOverrides(InputInterface $input)
     {
         $methods = ['childServer'];
         if($input->getOption('master-server')) {
@@ -549,9 +535,9 @@ abstract class run
     }
 
     /**
-     * Threads created by an overridden prepareThreads() are not graceful: then none is, the master would kill them
+     * Disable graceful stop for threads of an overridden prepareThreads()
      */
-    private function checkThreadsGraceful()
+    protected function checkThreadsGraceful()
     {
         if(!$this->gracefulStopActive) {
 
@@ -565,7 +551,8 @@ abstract class run
         foreach($this->threads as $thread) {
             if(!$isGraceful($thread)) {
                 $this->gracefulStopActive = false;
-                $this->output->writeln('<error>[MASTER]</error> Graceful stop is disabled: prepareThreads() of ' . static::class . ' creates threads without it');
+                $this->output->writeln('<error>[MASTER]</error> Graceful stop is disabled: prepareThreads() of ' . static::class
+                    . ' creates threads without it');
                 foreach($this->threads as $anyThread) {
                     $anyThread->setGracefulStop(false);
                 }
@@ -576,16 +563,18 @@ abstract class run
     }
 
     /**
+     * Child thread
+     *
      * @return thread
      */
-    private function createThread()
+    protected function createThread()
     {
         $thread = new thread(function ($addr) {
             $this->prepareChildProcess(json_decode($addr, true)['port']);
             $this->childServer($addr);
         });
         if($this->gracefulStopActive) {
-            // the master stops children itself instead of killing them on SIGTERM
+            // the master stops the children itself
             $thread->setGracefulStop(true);
         }
 
@@ -595,7 +584,7 @@ abstract class run
     /**
      * Master: stop signals and wake up on the exit of a child
      */
-    private function setupMasterSignals()
+    protected function setupMasterSignals()
     {
         pcntl_signal(SIGCHLD, function () {
             $this->childExited = true;
@@ -604,14 +593,13 @@ abstract class run
         if($this->gracefulStopActive) {
             gracefulStop::enable((int)ceil($this->gracefulStopTimeout) + 10);
             if($this->masterProxyActive) {
-                // inherited by children forked from now on: the stop request may come before prepareChildProcess()
+                // inherited by the children forked from now on
                 pcntl_signal(self::CHILD_STOP_SIGNAL, function () {
                     $this->onMasterStopRequest();
                 });
             }
         } elseif(class_exists(signalHandler::class)) {
-            // without gracefulStop in core thread::masterSignalHandler() kills the children on SIGTERM:
-            // do not start them again, exit
+            // old core kills the children on SIGTERM: do not restart
             signalHandler::getInstance()->addHandler(SIGTERM, function () {
                 $this->legacyStopRequested = true;
             });
@@ -621,7 +609,7 @@ abstract class run
     /**
      * Master: process signals, run the shutdown
      */
-    private function masterTick()
+    protected function masterTick()
     {
         pcntl_signal_dispatch();
         $this->readRetireNotifications();
@@ -639,7 +627,7 @@ abstract class run
         }
     }
 
-    private function beginShutdown()
+    protected function beginShutdown()
     {
         $this->shuttingDown = true;
         $this->shutdownStartedAt = microtime(true);
@@ -651,7 +639,7 @@ abstract class run
             $this->masterSocketServer->close();
             $this->masterSocketServer = null;
         }
-        // children keep their copies until they accepted the queued connections
+        // children keep their copies to accept the queue
         foreach($this->sharedSockets as $socket) {
             if(is_resource($socket)) {
                 fclose($socket);
@@ -660,17 +648,16 @@ abstract class run
         $this->sharedSockets = [];
     }
 
-    private function continueShutdown()
+    protected function continueShutdown()
     {
         $now = microtime(true);
-        // connections accepted by the master proxy reach a child first
+        // let the proxied connections reach a child first
         if(!$this->childrenStopSent && ($this->pendingConnects === 0 || $now - $this->shutdownStartedAt > 1.0)) {
             $this->childrenStopSent = true;
             if($this->gracefulStopActive) {
                 foreach($this->getChildThreads() as $thread) {
                     if($thread->isAlive()) {
-                        // a graceful thread does not exit on a repeated SIGTERM (the process manager may have
-                        // signalled the whole group already), the deadline of gracefulStop applies
+                        // a repeated SIGTERM is ignored, the deadline applies
                         posix_kill($thread->getPid(), $this->masterProxyActive ? self::CHILD_STOP_SIGNAL : SIGTERM);
                     }
                 }
@@ -704,25 +691,26 @@ abstract class run
      *
      * @return thread[]
      */
-    private function getChildThreads()
+    protected function getChildThreads()
     {
         return array_merge(array_values($this->threads), array_values($this->retiredThreads));
     }
 
     /**
-     * Master: open the listening sockets the children share, and the retire notification channel
+     * Master: open the shared listening sockets and the retire channel
      *
-     * @throws \RuntimeException
+     * @throws netException
+     * @throws serverException
      */
-    private function openSharedSockets()
+    protected function openSharedSockets()
     {
         foreach($this->childPorts as $port => $value) {
-            // children of a killed master leave within a second (they check the master), wait for them a bit
+            // children of a killed master leave within a second
             for($deadline = microtime(true) + 5.0; ; usleep(200000)) {
                 try {
                     $this->sharedSockets[$port] = listeningSocketServer::listen($this->childBindAddress ?? $this->childHost, $port);
                     break;
-                } catch(\RuntimeException $e) {
+                } catch(netException $e) {
                     if(microtime(true) > $deadline) {
                         throw $e;
                     }
@@ -731,7 +719,7 @@ abstract class run
         }
         $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
         if($pair === false) {
-            throw new \RuntimeException('Unable to create the retire notification socket pair');
+            throw new serverException('Unable to create the retire notification socket pair');
         }
         stream_set_blocking($pair[0], false);
         $this->notifySockets = $pair;
@@ -740,13 +728,15 @@ abstract class run
         } else {
             $memory = 'with oomKiller of the child';
         }
-        $this->output->writeln('<error>[MASTER]</error> Shared listening sockets: ' . implode(', ', array_keys($this->sharedSockets)) . ', recycle after requests: ' . ($this->maxRequests ?: 'off') . ', by memory: ' . $memory);
+        $this->output->writeln('<error>[MASTER]</error> Shared listening sockets: ' . implode(', ', array_keys($this->sharedSockets))
+            . ', recycle after requests: ' . ($this->maxRequests ?: 'off')
+            . ', by memory: ' . $memory);
     }
 
     /**
      * Master: start replacements of retiring children
      */
-    private function readRetireNotifications()
+    protected function readRetireNotifications()
     {
         if(!isset($this->notifySockets[0])) {
 
@@ -767,7 +757,7 @@ abstract class run
      * @param int    $pid
      * @param string $reason
      */
-    private function replaceRetiringChild($pid, $reason)
+    protected function replaceRetiringChild($pid, $reason)
     {
         if($this->shuttingDown) {
 
@@ -785,7 +775,8 @@ abstract class run
             } catch(\Exception $e) {
                 error_log("Unable to start server, cuz exception: {$e->getMessage()}\n{$e->getTraceAsString()}");
             }
-            $this->output->writeln("<error>[MASTER]</error> Child {$pid} retiring ({$reason}), replacement {$this->threads[$addr]->getPid()} started");
+            $this->output->writeln("<error>[MASTER]</error> Child {$pid} retiring ({$reason}), "
+                . "replacement {$this->threads[$addr]->getPid()} started");
 
             return;
         }
@@ -796,7 +787,7 @@ abstract class run
      *
      * @return int
      */
-    private function getRecycleMemoryLimit()
+    protected function getRecycleMemoryLimit()
     {
         $limit = (int)$this->maxMemoryUsage;
         $memoryLimit = $this->parseIniBytes(ini_get('memory_limit'));
@@ -808,11 +799,13 @@ abstract class run
     }
 
     /**
+     * php.ini size in bytes, -1 - no limit
+     *
      * @param string|false $value
      *
-     * @return int bytes, -1 for no limit
+     * @return int
      */
-    private function parseIniBytes($value)
+    protected function parseIniBytes($value)
     {
         $value = trim((string)$value);
         if($value === '' || $value === '-1') {
@@ -845,7 +838,7 @@ abstract class run
     }
 
     /**
-     * Master server: DNS server of the resolver, the given one or the first nameserver of the system config
+     * Master server: DNS server of the resolver
      *
      * @return string
      */
@@ -857,20 +850,15 @@ abstract class run
         }
         $nameservers = reactDnsConfig::loadSystemConfigBlocking()->nameservers;
 
-        // resolv.conf without nameservers means the local one (man resolv.conf)
+        // no nameservers in resolv.conf: the local one
         return reset($nameservers) ?: '127.0.0.1';
     }
 
     /**
-     * Master server: address the children bind and the master connects them at
-     *
-     * The child host (--bind) is looked up once at start with the system resolver (hosts, nsswitch, search domains)
-     * and the address is used by both sides, so they cannot differ (localhost is 127.0.0.1 for both). IPv4 only:
-     * a host with IPv6 addresses only is not found, give the IP then. With a DNS server given (--dns) nothing is
-     * looked up here: the children bind the host and the master looks it up by that server on connections.
+     * Master server: address the children bind and the master connects to
      *
      * @return string
-     * @throws \RuntimeException the host is not found
+     * @throws serverException
      */
     protected function resolveMasterChildHost()
     {
@@ -881,7 +869,7 @@ abstract class run
         }
         $address = gethostbyname($host);
         if(filter_var($address, FILTER_VALIDATE_IP) === false) {
-            throw new \RuntimeException("Unable to look up the child host {$host} (--bind) with the system resolver: use an IP address or a DNS server (--dns)");
+            throw new serverException("Unable to look up the child host {$host}");
         }
         $this->output->writeln("<error>[MASTER]</error> Child host {$host} is {$address}");
 
@@ -920,7 +908,7 @@ abstract class run
                 $this->masterTick();
             });
         }
-        // a signal only interrupts stream_select(), stop requests and exited children are checked here
+        // signals only interrupt stream_select(), check here
         $loop->addPeriodicTimer(0.1, function () use ($loop) {
             $this->masterTick();
             if($this->masterFinished) {
@@ -936,7 +924,7 @@ abstract class run
      * @param Connection         $clientConnection
      * @param ConnectorInterface $connector
      */
-    private function proxyConnection(Connection $clientConnection, ConnectorInterface $connector)
+    protected function proxyConnection(Connection $clientConnection, ConnectorInterface $connector)
     {
         $clientConnection->pause();
         $clientResource = $clientConnection->stream;
@@ -959,13 +947,13 @@ abstract class run
     }
 
     /**
-     * Connect the client to a live child, try the next one on error, answer 502/503 when none is left
+     * Connect the client to a live child, answer 502/503 if none is left
      *
      * @param Connection         $clientConnection
      * @param ConnectorInterface $connector
      * @param \stdClass          $state
      */
-    private function connectToChild(Connection $clientConnection, ConnectorInterface $connector, \stdClass $state)
+    protected function connectToChild(Connection $clientConnection, ConnectorInterface $connector, \stdClass $state)
     {
         $threadKey = $this->pickChild($state->tried);
         if($threadKey === null) {
@@ -991,7 +979,7 @@ abstract class run
                 $childStream->on('close', function () use ($clientConnection, $childResource, $state) {
                     $this->untrackMasterResource($childResource);
                     $state->child = null;
-                    // flush what the child sent, then close: the child ended the response or died
+                    // the child ended the response or died
                     $clientConnection->end();
                 });
                 Util::pipe($childStream, $clientConnection, ['end' => false]);
@@ -1015,13 +1003,13 @@ abstract class run
     }
 
     /**
-     * Random live child, not tried yet for this client
+     * Random live child not tried yet for this client
      *
      * @param array $tried
      *
-     * @return string|null thread key
+     * @return string|null
      */
-    private function pickChild(array $tried)
+    protected function pickChild(array $tried)
     {
         $keys = array_keys($this->threads);
         shuffle($keys);
@@ -1034,7 +1022,7 @@ abstract class run
 
                 return $threadKey;
             }
-            // a shared socket keeps the connection in the queue until the child is started again
+            // a shared socket queues the connection for the restart
             if($queued === null && isset($this->sharedSockets[json_decode($threadKey, true)['port']])) {
                 $queued = $threadKey;
             }
@@ -1047,14 +1035,14 @@ abstract class run
      * @param Connection $clientConnection
      * @param int        $code
      */
-    private function answerAndClose(Connection $clientConnection, $code)
+    protected function answerAndClose(Connection $clientConnection, $code)
     {
         $reason = $code === 503 ? 'Service Unavailable' : 'Bad Gateway';
         $this->masterLog("answer:{$code}", "[MASTER] {$code} {$reason}: no child accepted the connection");
         $body = "{$code} {$reason}\n";
-        $response = "HTTP/1.1 {$code} {$reason}\r\nContent-Type: text/plain\r\nContent-Length: " . strlen($body) . "\r\nConnection: close\r\n\r\n{$body}";
-        // answer after the request arrived: clients drop a response sent before the request, and closing a socket
-        // with unread data sends RST instead of the response
+        $response = "HTTP/1.1 {$code} {$reason}\r\nContent-Type: text/plain\r\nContent-Length: "
+            . strlen($body) . "\r\nConnection: close\r\n\r\n{$body}";
+        // answer after the request: unread data closes with RST
         $timer = null;
         $answer = function () use ($clientConnection, $response, &$timer) {
             if($timer !== null) {
@@ -1069,12 +1057,12 @@ abstract class run
     }
 
     /**
-     * error_log() at most once a second per key, with the number of suppressed messages
+     * error_log() at most once a second per key
      *
      * @param string $key
      * @param string $message
      */
-    private function masterLog($key, $message)
+    protected function masterLog($key, $message)
     {
         $now = time();
         if(!isset($this->masterLogState[$key])) {
@@ -1091,11 +1079,11 @@ abstract class run
     }
 
     /**
-     * Remember a socket of the master server: children forked from the master loop close their copies
+     * Remember a socket of the master server
      *
      * @param resource $resource
      */
-    private function trackMasterResource($resource)
+    protected function trackMasterResource($resource)
     {
         if(is_resource($resource)) {
             $this->masterResources[(int)$resource] = $resource;
@@ -1105,17 +1093,15 @@ abstract class run
     /**
      * @param resource $resource
      */
-    private function untrackMasterResource($resource)
+    protected function untrackMasterResource($resource)
     {
         unset($this->masterResources[(int)$resource]);
     }
 
     /**
-     * In a child: close the sockets inherited from the master server
-     *
-     * A copy kept by the child holds the TCP connection open after the master closes it, and the client hangs.
+     * Child: close the sockets inherited from the master server
      */
-    private function closeMasterResources()
+    protected function closeMasterResources()
     {
         foreach($this->masterResources as $resource) {
             if(is_resource($resource)) {
@@ -1126,11 +1112,11 @@ abstract class run
     }
 
     /**
-     * Child: drop what belongs to the master, set up the stop signals; before childServer(), once
+     * Child: drop the master resources, set up the stop signals
      *
      * @param int|string $port
      */
-    private function prepareChildProcess($port)
+    protected function prepareChildProcess($port)
     {
         if($this->childPrepared) {
 
@@ -1145,8 +1131,7 @@ abstract class run
                 unset($this->sharedSockets[$sharedPort]);
             }
         }
-        // the master does not run the application: its TCP/UDP sockets are its own (proxy connections, also those
-        // still connecting, DNS). A copy in the child keeps a connection open after the master closed it.
+        // sockets of the master: proxy connections, DNS
         $keep = [];
         if(isset($this->sharedSockets[$port])) {
             $keep[(int)$this->sharedSockets[$port]] = true;
@@ -1164,10 +1149,10 @@ abstract class run
             fclose($this->notifySockets[0]);
             unset($this->notifySockets[0]);
         }
-        // the master wakes up on SIGCHLD, the application in the child must see the default behaviour
+        // SIGCHLD belongs to the master, restore the default
         pcntl_signal(SIGCHLD, SIG_DFL);
         if($this->gracefulStopActive) {
-            // a bit later than our own deadline: it fires even if the loop is blocked by a request
+            // fires even when a request blocks the loop
             gracefulStop::enable((int)ceil($this->gracefulStopTimeout) + 2);
             if($this->masterProxyActive) {
                 $this->holdChildStopSignals();
@@ -1176,16 +1161,9 @@ abstract class run
     }
 
     /**
-     * Child behind the master proxy: stop when the master says so, not when the process manager signals the group
-     *
-     * The master stops accepting first and asks the children to stop after the connections it accepted reached
-     * a child (continueShutdown()); a child stopping on the signal of the process manager (systemd
-     * KillMode=control-group, processManager, Ctrl+C in a terminal) refuses them. siginfo of PHP has no sender pid
-     * for SIGTERM, so the master asks with CHILD_STOP_SIGNAL, and SIGTERM/SIGINT are held while the master is alive,
-     * until its request, at most CHILD_STOP_HOLD seconds: then the child stops by itself. A second SIGINT
-     * (Ctrl+C twice) is not held.
+     * Child behind the master proxy: hold stop signals until the master asks to stop
      */
-    private function holdChildStopSignals()
+    protected function holdChildStopSignals()
     {
         foreach([SIGTERM, SIGINT] as $signal) {
             $handler = pcntl_signal_get_handler($signal);
@@ -1215,7 +1193,7 @@ abstract class run
     /**
      * Child: the master asked to stop, a stop signal for the handlers
      */
-    private function onMasterStopRequest()
+    protected function onMasterStopRequest()
     {
         if(getmypid() === $this->masterPid || $this->masterStopReceived) {
 
@@ -1231,11 +1209,11 @@ abstract class run
     }
 
     /**
-     * Child: pass the held stop signal to the handlers if the master has not asked to stop in time
+     * Child: pass the held stop signal to the handlers
      *
-     * @param bool $timeout only if CHILD_STOP_HOLD seconds are over
+     * @param bool $timeout
      */
-    private function releaseHeldStopSignal($timeout = false)
+    protected function releaseHeldStopSignal($timeout = false)
     {
         if($this->heldStopSignal === null || ($timeout && microtime(true) - $this->heldStopAt < self::CHILD_STOP_HOLD)) {
 
@@ -1267,7 +1245,8 @@ abstract class run
 
         $loop = Factory::create();
         $this->childLoop = $loop;
-        $socket = new listeningSocketServer($sharedSocket ?? listeningSocketServer::listen($this->childBindAddress ?? $this->childHost, $this->port), $loop, false);
+        $socket = new listeningSocketServer(
+            $sharedSocket ?? listeningSocketServer::listen($this->childBindAddress ?? $this->childHost, $this->port), $loop, false);
         $this->childSocket = $socket;
         $http = new reactHttpServer(function (ServerRequest $request) {
             if(MPCMF_DEBUG) {
@@ -1307,7 +1286,7 @@ abstract class run
         $socket->on('connection', function (Connection $connection) {
             $this->openConnections++;
             $id = spl_object_id($connection);
-            // react/http 0.7 has no header timeout: a connection without a request must not hold the stop
+            // react/http 0.7 has no header timeout
             $this->idleConnections[$id] = $connection;
             $connection->once('data', function () use ($id) {
                 unset($this->idleConnections[$id]);
@@ -1319,7 +1298,7 @@ abstract class run
             });
         });
         if($this->gracefulStopActive) {
-            // a signal only interrupts stream_select(), the flag is checked here
+            // signals only interrupt stream_select(), check here
             $loop->addPeriodicTimer(0.2, function () {
                 $this->releaseHeldStopSignal(true);
                 if(gracefulStop::isRequested()) {
@@ -1328,7 +1307,7 @@ abstract class run
             });
         }
         if($sharedSocket !== null) {
-            // an orphan would serve old code: leave when the master is gone
+            // leave when the master is gone
             $loop->addPeriodicTimer(1.0, function () {
                 if(posix_getppid() !== $this->masterPid) {
                     $this->stopChild('master is gone');
@@ -1349,7 +1328,7 @@ abstract class run
     /**
      * Child: a connection is closed, the response is sent
      */
-    private function afterConnectionClosed()
+    protected function afterConnectionClosed()
     {
         if($this->childStopping) {
             $this->finishChildIfIdle();
@@ -1362,8 +1341,7 @@ abstract class run
 
                 return;
             }
-            // explicit recycle: soft limit; default: only with oomKiller, its limit. Runtime values of the child count:
-            // an application may enable oomKiller in getBaseApplication(), which runs in the child
+            // soft limit; by default only with oomKiller
             if($this->gracefulRecycle === true) {
                 $limit = $this->getRecycleMemoryLimit();
             } elseif($this->oomKillerEnabled) {
@@ -1374,13 +1352,15 @@ abstract class run
             }
             $memoryUsage = memory_get_usage(true);
             if($this->recycleMemoryMinimum === null && $this->handledRequests > 0) {
-                // the first request loads the application: a limit at or below that would recycle on every request
+                // not below the usage after the first request
                 $this->recycleMemoryMinimum = $memoryUsage + max(8 << 20, intdiv($memoryUsage, 4));
             }
             if($this->recycleMemoryMinimum !== null && $limit < $this->recycleMemoryMinimum) {
                 if(!$this->recycleMemoryWarned) {
                     $this->recycleMemoryWarned = true;
-                    $this->output->writeln("<error>[CHILD]</error> Recycle memory limit {$limit} is too low: {$memoryUsage} after the first request, using {$this->recycleMemoryMinimum}; raise setMaxMemoryUsage()/memory_limit");
+                    $this->output->writeln("<error>[CHILD]</error> Recycle memory limit {$limit} is too low: {$memoryUsage}"
+                        . " after the first request, using {$this->recycleMemoryMinimum}"
+                        . "; raise setMaxMemoryUsage()/memory_limit");
                 }
                 $limit = $this->recycleMemoryMinimum;
             }
@@ -1405,11 +1385,9 @@ abstract class run
     /**
      * Child: stop accepting, finish the accepted connections and leave the loop
      *
-     * The connections already queued by the kernel are accepted first: closing the socket would reset them.
-     *
      * @param string $reason
      */
-    private function stopChild($reason)
+    protected function stopChild($reason)
     {
         if($this->childStopping) {
 
@@ -1419,10 +1397,12 @@ abstract class run
         $this->childSocket->pause();
         $accepted = $this->childSocket->acceptPending();
         $this->childSocket->close();
-        $this->output->writeln("<error>[CHILD]</error> Stopping child server on {$this->childHost}:{$this->port} ({$reason}), connections: {$this->openConnections}, accepted from queue: {$accepted}");
+        $this->output->writeln("<error>[CHILD]</error> Stopping child server on {$this->childHost}:{$this->port} ({$reason})"
+            . ", connections: {$this->openConnections}, accepted from queue: {$accepted}");
 
         $this->childLoop->addTimer($this->gracefulStopTimeout, function () {
-            $this->output->writeln("<error>[CHILD]</error> Child server on {$this->childHost}:{$this->port} did not finish in {$this->gracefulStopTimeout}s, connections left: {$this->openConnections}");
+            $this->output->writeln("<error>[CHILD]</error> Child server on {$this->childHost}:{$this->port}"
+                . " did not finish in {$this->gracefulStopTimeout}s, connections left: {$this->openConnections}");
             $this->childStopForced = true;
             $this->childLoop->stop();
         });
@@ -1431,13 +1411,11 @@ abstract class run
     }
 
     /**
-     * Child with a shared socket: stop accepting, let the master start the replacement, finish the requests
-     *
-     * The queued connections stay in the shared socket for the replacement.
+     * Child with a shared socket: stop accepting and let the master replace it
      *
      * @param string $reason
      */
-    private function retireChild($reason)
+    protected function retireChild($reason)
     {
         if($this->childStopping) {
 
@@ -1449,10 +1427,12 @@ abstract class run
         if(@fwrite($this->notifySockets[1], "{$pid} {$reason}\n") === false) {
             error_log("[CHILD] Unable to notify the master about retirement of {$pid}");
         }
-        $this->output->writeln("<error>[CHILD]</error> Child {$pid} on {$this->childHost}:{$this->port} retiring ({$reason}), connections: {$this->openConnections}");
+        $this->output->writeln("<error>[CHILD]</error> Child {$pid} on {$this->childHost}:{$this->port}"
+            . " retiring ({$reason}), connections: {$this->openConnections}");
 
         $this->childLoop->addTimer($this->gracefulStopTimeout, function () {
-            $this->output->writeln("<error>[CHILD]</error> Child server on {$this->childHost}:{$this->port} did not finish in {$this->gracefulStopTimeout}s, connections left: {$this->openConnections}");
+            $this->output->writeln("<error>[CHILD]</error> Child server on {$this->childHost}:{$this->port}"
+                . " did not finish in {$this->gracefulStopTimeout}s, connections left: {$this->openConnections}");
             $this->childStopForced = true;
             $this->childLoop->stop();
         });
@@ -1463,7 +1443,7 @@ abstract class run
     /**
      * Stopping child: close the connections that have not sent a byte within a second
      */
-    private function closeIdleConnectionsLater()
+    protected function closeIdleConnectionsLater()
     {
         $this->childLoop->addTimer(1.0, function () {
             $idle = $this->idleConnections;
@@ -1474,7 +1454,7 @@ abstract class run
         });
     }
 
-    private function finishChildIfIdle()
+    protected function finishChildIfIdle()
     {
         if($this->childStopping && $this->openConnections <= 0) {
             $this->childLoop->stop();
@@ -1489,7 +1469,7 @@ abstract class run
      *
      * @return reactResponse
      */
-    private function processRequest(ServerRequest $request, $requestContent)
+    protected function processRequest(ServerRequest $request, $requestContent)
     {
         $originApplication = null;
         $obLevel = ob_get_level();
@@ -1512,7 +1492,7 @@ abstract class run
             $middleware = $this->slimMiddleware($slim);
             $originApplication = $this->applicationInstance->getCurrentApplication();
             $this->applicationInstance->setApplication($app);
-            // runRaw() leaves its error handler installed when an \Error passes through Slim
+            // runRaw() leaves its error handler on an \Error
             $errorHandlerGuard = static function () {
                 return false;
             };
@@ -1536,7 +1516,7 @@ abstract class run
                 $this->output->writeln("<error>[CHILD:{$this->port}]</error> {$responseBody}");
             }
             if($inApp && !$this->appReady && $this->childSocket !== null) {
-                // the static state of a failed bootstrap is unknown: let the master start a clean child
+                // unknown state after a failed bootstrap: restart
                 $this->stopChild('application bootstrap failed');
             }
 
@@ -1579,7 +1559,7 @@ abstract class run
      *
      * @param callable $guard
      */
-    private function restoreErrorHandlerUpTo($guard)
+    protected function restoreErrorHandlerUpTo($guard)
     {
         for($i = 0; $i < 32; $i++) {
             $current = set_error_handler(static function () {
@@ -1599,7 +1579,7 @@ abstract class run
      *
      * @return Middleware[]
      */
-    private function slimMiddleware(Slim $slim)
+    protected function slimMiddleware(Slim $slim)
     {
         return \Closure::bind(function () {
             return $this->middleware;
@@ -1607,17 +1587,12 @@ abstract class run
     }
 
     /**
-     * Undo per-request state that Slim keeps in long living objects
-     *
-     * - slimDriver::runRaw() adds PrettyExceptions on every call in debug mode: the middleware chain grows by one
-     *   element per request. Middleware added during the request in front of the chain is removed.
-     * - Route::matches() appends to Route::$paramNames on every call: every route of the request method grows
-     *   on every request, routes live as long as the child.
+     * Undo per-request state Slim keeps in long living objects
      *
      * @param Slim              $slim
      * @param Middleware[]|null $middlewareBefore
      */
-    private function resetSlimState(Slim $slim, $middlewareBefore)
+    protected function resetSlimState(Slim $slim, $middlewareBefore)
     {
         if(is_array($middlewareBefore)) {
             \Closure::bind(function () use ($middlewareBefore) {
@@ -1793,8 +1768,7 @@ abstract class run
     }
 
     /**
-     * Restart a child when memory_get_usage(true) is over maxMemoryUsage after a response: with the shared sockets
-     * (default) it retires gracefully, with setGracefulRecycle(false) it closes its listening socket (old behaviour)
+     * Restart a child over maxMemoryUsage after a response
      *
      * @param bool $oomKillerEnabled
      */
@@ -1815,7 +1789,7 @@ abstract class run
         static $app, $router;
 
         if($app === null) {
-            // assigned once the bootstrap succeeded: a half initialized application must not serve requests
+            // set only after a successful bootstrap
             $newApp = $this->getBaseApplication();
             //MPCMF_DEBUG && self::log()->addDebug('Before bindings call...');
             $newApp->beforeBindings();
