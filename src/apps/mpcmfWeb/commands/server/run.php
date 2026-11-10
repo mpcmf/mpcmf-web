@@ -184,6 +184,13 @@ abstract class run
      */
     private $retiredThreads = [];
 
+    /**
+     * When the retiring children were replaced, by key of retiredThreads
+     *
+     * @var float[]
+     */
+    private $retiredAt = [];
+
     private $handledRequests = 0;
 
     private $childPrepared = false;
@@ -369,7 +376,12 @@ abstract class run
         foreach($this->retiredThreads as $key => $thread) {
             if(!$thread->isAlive()) {
                 $this->output->writeln("<error>[MASTER]</error> Retired child {$thread->getPid()} exited with code " . json_encode($thread->getExitCode()));
-                unset($this->retiredThreads[$key]);
+                unset($this->retiredThreads[$key], $this->retiredAt[$key]);
+            } elseif(isset($this->retiredAt[$key]) && microtime(true) - $this->retiredAt[$key] > $this->gracefulStopTimeout + 5) {
+                // its own deadline is a timer of its loop: a request blocking the loop holds it forever
+                $this->output->writeln("<error>[MASTER]</error> Killing retired child {$thread->getPid()}: did not finish in time");
+                posix_kill($thread->getPid(), SIGKILL);
+                unset($this->retiredAt[$key]);
             }
         }
         if($this->shuttingDown) {
@@ -681,6 +693,7 @@ abstract class run
                 continue;
             }
             $this->retiredThreads[] = $thread;
+            $this->retiredAt[array_key_last($this->retiredThreads)] = microtime(true);
             $this->threads[$addr] = $this->createThread();
             try {
                 $this->threads[$addr]->start($addr);
