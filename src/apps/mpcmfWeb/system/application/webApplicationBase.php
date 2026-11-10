@@ -243,7 +243,7 @@ abstract class webApplicationBase
         /** @var smartyDriver $view */
         $view = $this->slim()->view();
 
-        // keeps compiled templates loaded between requests unless smarty caching or force_compile is on
+        // keep compiled templates between requests
         if (method_exists($view, 'clearRequestCache')) {
             $view->clearRequestCache();
         } else {
