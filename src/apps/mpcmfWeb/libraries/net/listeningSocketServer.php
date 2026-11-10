@@ -3,6 +3,7 @@
 namespace mpcmf\apps\mpcmfWeb\libraries\net;
 
 use Evenement\EventEmitter;
+use mpcmf\apps\mpcmfWeb\libraries\net\exception\netException;
 use React\EventLoop\LoopInterface;
 use React\Socket\Connection;
 use React\Socket\ServerInterface;
@@ -40,7 +41,7 @@ class listeningSocketServer
      *
      * @return resource
      *
-     * @throws \RuntimeException
+     * @throws netException
      */
     public static function listen($host, $port, $backlog = self::DEFAULT_BACKLOG)
     {
@@ -51,7 +52,7 @@ class listeningSocketServer
         $context = stream_context_create(['socket' => ['backlog' => (int)$backlog]]);
         $socket = @stream_socket_server("tcp://{$host}:{$port}", $errno, $errstr, STREAM_SERVER_BIND | STREAM_SERVER_LISTEN, $context);
         if ($socket === false) {
-            throw new \RuntimeException("Failed to listen on \"{$host}:{$port}\": {$errstr}", (int)$errno);
+            throw new netException("Failed to listen on \"{$host}:{$port}\": {$errstr}", (int)$errno);
         }
         stream_set_blocking($socket, false);
 

@@ -3,7 +3,9 @@
 namespace mpcmf\apps\mpcmfWeb\commands\server;
 
 use GuzzleHttp\Psr7\Uri;
+use mpcmf\apps\mpcmfWeb\commands\server\exception\serverException;
 use mpcmf\apps\mpcmfWeb\libraries\io\multipartParser;
+use mpcmf\apps\mpcmfWeb\libraries\net\exception\netException;
 use mpcmf\apps\mpcmfWeb\libraries\net\listeningSocketServer;
 use mpcmf\apps\mpcmfWeb\mpcmfWeb;
 use mpcmf\system\application\applicationInstance;
@@ -712,7 +714,8 @@ abstract class run
     /**
      * Master: open the listening sockets the children share, and the retire notification channel
      *
-     * @throws \RuntimeException
+     * @throws netException
+     * @throws serverException
      */
     private function openSharedSockets()
     {
@@ -722,7 +725,7 @@ abstract class run
                 try {
                     $this->sharedSockets[$port] = listeningSocketServer::listen($this->childBindAddress ?? $this->childHost, $port);
                     break;
-                } catch(\RuntimeException $e) {
+                } catch(netException $e) {
                     if(microtime(true) > $deadline) {
                         throw $e;
                     }
@@ -731,7 +734,7 @@ abstract class run
         }
         $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
         if($pair === false) {
-            throw new \RuntimeException('Unable to create the retire notification socket pair');
+            throw new serverException('Unable to create the retire notification socket pair');
         }
         stream_set_blocking($pair[0], false);
         $this->notifySockets = $pair;
@@ -870,7 +873,7 @@ abstract class run
      * looked up here: the children bind the host and the master looks it up by that server on connections.
      *
      * @return string
-     * @throws \RuntimeException the host is not found
+     * @throws serverException
      */
     protected function resolveMasterChildHost()
     {
@@ -881,7 +884,7 @@ abstract class run
         }
         $address = gethostbyname($host);
         if(filter_var($address, FILTER_VALIDATE_IP) === false) {
-            throw new \RuntimeException("Unable to look up the child host {$host} (--bind) with the system resolver: use an IP address or a DNS server (--dns)");
+            throw new serverException("Unable to look up the child host {$host}");
         }
         $this->output->writeln("<error>[MASTER]</error> Child host {$host} is {$address}");
 
