@@ -188,7 +188,6 @@ abstract class run
 
     private $childPrepared = false;
 
-
     /**
      * Child: the application bootstrap in app() succeeded
      *
