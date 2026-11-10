@@ -17,6 +17,8 @@ use React\Socket\ServerInterface;
  *
  * Unlike React\Socket\Server it gives access to the resource and can accept the already queued
  * connections before it stops listening ({@see acceptPending()}).
+ *
+ * @author Dmitry Emelyanov <gilberg.vrn@gmail.com>
  */
 class listeningSocketServer
     extends EventEmitter

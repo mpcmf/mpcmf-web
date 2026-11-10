@@ -523,7 +523,7 @@ abstract class run
      *
      * @param InputInterface $input
      */
-    private function checkOverrides(InputInterface $input)
+    protected function checkOverrides(InputInterface $input)
     {
         $methods = ['childServer'];
         if($input->getOption('master-server')) {
@@ -553,7 +553,7 @@ abstract class run
     /**
      * Threads created by an overridden prepareThreads() are not graceful: then none is, the master would kill them
      */
-    private function checkThreadsGraceful()
+    protected function checkThreadsGraceful()
     {
         if(!$this->gracefulStopActive) {
 
@@ -580,7 +580,7 @@ abstract class run
     /**
      * @return thread
      */
-    private function createThread()
+    protected function createThread()
     {
         $thread = new thread(function ($addr) {
             $this->prepareChildProcess(json_decode($addr, true)['port']);
@@ -597,7 +597,7 @@ abstract class run
     /**
      * Master: stop signals and wake up on the exit of a child
      */
-    private function setupMasterSignals()
+    protected function setupMasterSignals()
     {
         pcntl_signal(SIGCHLD, function () {
             $this->childExited = true;
@@ -623,7 +623,7 @@ abstract class run
     /**
      * Master: process signals, run the shutdown
      */
-    private function masterTick()
+    protected function masterTick()
     {
         pcntl_signal_dispatch();
         $this->readRetireNotifications();
@@ -641,7 +641,7 @@ abstract class run
         }
     }
 
-    private function beginShutdown()
+    protected function beginShutdown()
     {
         $this->shuttingDown = true;
         $this->shutdownStartedAt = microtime(true);
@@ -662,7 +662,7 @@ abstract class run
         $this->sharedSockets = [];
     }
 
-    private function continueShutdown()
+    protected function continueShutdown()
     {
         $now = microtime(true);
         // connections accepted by the master proxy reach a child first
@@ -706,7 +706,7 @@ abstract class run
      *
      * @return thread[]
      */
-    private function getChildThreads()
+    protected function getChildThreads()
     {
         return array_merge(array_values($this->threads), array_values($this->retiredThreads));
     }
@@ -717,7 +717,7 @@ abstract class run
      * @throws netException
      * @throws serverException
      */
-    private function openSharedSockets()
+    protected function openSharedSockets()
     {
         foreach($this->childPorts as $port => $value) {
             // children of a killed master leave within a second (they check the master), wait for them a bit
@@ -749,7 +749,7 @@ abstract class run
     /**
      * Master: start replacements of retiring children
      */
-    private function readRetireNotifications()
+    protected function readRetireNotifications()
     {
         if(!isset($this->notifySockets[0])) {
 
@@ -770,7 +770,7 @@ abstract class run
      * @param int    $pid
      * @param string $reason
      */
-    private function replaceRetiringChild($pid, $reason)
+    protected function replaceRetiringChild($pid, $reason)
     {
         if($this->shuttingDown) {
 
@@ -799,7 +799,7 @@ abstract class run
      *
      * @return int
      */
-    private function getRecycleMemoryLimit()
+    protected function getRecycleMemoryLimit()
     {
         $limit = (int)$this->maxMemoryUsage;
         $memoryLimit = $this->parseIniBytes(ini_get('memory_limit'));
@@ -815,7 +815,7 @@ abstract class run
      *
      * @return int bytes, -1 for no limit
      */
-    private function parseIniBytes($value)
+    protected function parseIniBytes($value)
     {
         $value = trim((string)$value);
         if($value === '' || $value === '-1') {
@@ -939,7 +939,7 @@ abstract class run
      * @param Connection         $clientConnection
      * @param ConnectorInterface $connector
      */
-    private function proxyConnection(Connection $clientConnection, ConnectorInterface $connector)
+    protected function proxyConnection(Connection $clientConnection, ConnectorInterface $connector)
     {
         $clientConnection->pause();
         $clientResource = $clientConnection->stream;
@@ -968,7 +968,7 @@ abstract class run
      * @param ConnectorInterface $connector
      * @param \stdClass          $state
      */
-    private function connectToChild(Connection $clientConnection, ConnectorInterface $connector, \stdClass $state)
+    protected function connectToChild(Connection $clientConnection, ConnectorInterface $connector, \stdClass $state)
     {
         $threadKey = $this->pickChild($state->tried);
         if($threadKey === null) {
@@ -1024,7 +1024,7 @@ abstract class run
      *
      * @return string|null thread key
      */
-    private function pickChild(array $tried)
+    protected function pickChild(array $tried)
     {
         $keys = array_keys($this->threads);
         shuffle($keys);
@@ -1050,7 +1050,7 @@ abstract class run
      * @param Connection $clientConnection
      * @param int        $code
      */
-    private function answerAndClose(Connection $clientConnection, $code)
+    protected function answerAndClose(Connection $clientConnection, $code)
     {
         $reason = $code === 503 ? 'Service Unavailable' : 'Bad Gateway';
         $this->masterLog("answer:{$code}", "[MASTER] {$code} {$reason}: no child accepted the connection");
@@ -1077,7 +1077,7 @@ abstract class run
      * @param string $key
      * @param string $message
      */
-    private function masterLog($key, $message)
+    protected function masterLog($key, $message)
     {
         $now = time();
         if(!isset($this->masterLogState[$key])) {
@@ -1098,7 +1098,7 @@ abstract class run
      *
      * @param resource $resource
      */
-    private function trackMasterResource($resource)
+    protected function trackMasterResource($resource)
     {
         if(is_resource($resource)) {
             $this->masterResources[(int)$resource] = $resource;
@@ -1108,7 +1108,7 @@ abstract class run
     /**
      * @param resource $resource
      */
-    private function untrackMasterResource($resource)
+    protected function untrackMasterResource($resource)
     {
         unset($this->masterResources[(int)$resource]);
     }
@@ -1118,7 +1118,7 @@ abstract class run
      *
      * A copy kept by the child holds the TCP connection open after the master closes it, and the client hangs.
      */
-    private function closeMasterResources()
+    protected function closeMasterResources()
     {
         foreach($this->masterResources as $resource) {
             if(is_resource($resource)) {
@@ -1133,7 +1133,7 @@ abstract class run
      *
      * @param int|string $port
      */
-    private function prepareChildProcess($port)
+    protected function prepareChildProcess($port)
     {
         if($this->childPrepared) {
 
@@ -1188,7 +1188,7 @@ abstract class run
      * until its request, at most CHILD_STOP_HOLD seconds: then the child stops by itself. A second SIGINT
      * (Ctrl+C twice) is not held.
      */
-    private function holdChildStopSignals()
+    protected function holdChildStopSignals()
     {
         foreach([SIGTERM, SIGINT] as $signal) {
             $handler = pcntl_signal_get_handler($signal);
@@ -1218,7 +1218,7 @@ abstract class run
     /**
      * Child: the master asked to stop, a stop signal for the handlers
      */
-    private function onMasterStopRequest()
+    protected function onMasterStopRequest()
     {
         if(getmypid() === $this->masterPid || $this->masterStopReceived) {
 
@@ -1238,7 +1238,7 @@ abstract class run
      *
      * @param bool $timeout only if CHILD_STOP_HOLD seconds are over
      */
-    private function releaseHeldStopSignal($timeout = false)
+    protected function releaseHeldStopSignal($timeout = false)
     {
         if($this->heldStopSignal === null || ($timeout && microtime(true) - $this->heldStopAt < self::CHILD_STOP_HOLD)) {
 
@@ -1352,7 +1352,7 @@ abstract class run
     /**
      * Child: a connection is closed, the response is sent
      */
-    private function afterConnectionClosed()
+    protected function afterConnectionClosed()
     {
         if($this->childStopping) {
             $this->finishChildIfIdle();
@@ -1412,7 +1412,7 @@ abstract class run
      *
      * @param string $reason
      */
-    private function stopChild($reason)
+    protected function stopChild($reason)
     {
         if($this->childStopping) {
 
@@ -1440,7 +1440,7 @@ abstract class run
      *
      * @param string $reason
      */
-    private function retireChild($reason)
+    protected function retireChild($reason)
     {
         if($this->childStopping) {
 
@@ -1466,7 +1466,7 @@ abstract class run
     /**
      * Stopping child: close the connections that have not sent a byte within a second
      */
-    private function closeIdleConnectionsLater()
+    protected function closeIdleConnectionsLater()
     {
         $this->childLoop->addTimer(1.0, function () {
             $idle = $this->idleConnections;
@@ -1477,7 +1477,7 @@ abstract class run
         });
     }
 
-    private function finishChildIfIdle()
+    protected function finishChildIfIdle()
     {
         if($this->childStopping && $this->openConnections <= 0) {
             $this->childLoop->stop();
@@ -1492,7 +1492,7 @@ abstract class run
      *
      * @return reactResponse
      */
-    private function processRequest(ServerRequest $request, $requestContent)
+    protected function processRequest(ServerRequest $request, $requestContent)
     {
         $originApplication = null;
         $obLevel = ob_get_level();
@@ -1582,7 +1582,7 @@ abstract class run
      *
      * @param callable $guard
      */
-    private function restoreErrorHandlerUpTo($guard)
+    protected function restoreErrorHandlerUpTo($guard)
     {
         for($i = 0; $i < 32; $i++) {
             $current = set_error_handler(static function () {
@@ -1602,7 +1602,7 @@ abstract class run
      *
      * @return Middleware[]
      */
-    private function slimMiddleware(Slim $slim)
+    protected function slimMiddleware(Slim $slim)
     {
         return \Closure::bind(function () {
             return $this->middleware;
@@ -1620,7 +1620,7 @@ abstract class run
      * @param Slim              $slim
      * @param Middleware[]|null $middlewareBefore
      */
-    private function resetSlimState(Slim $slim, $middlewareBefore)
+    protected function resetSlimState(Slim $slim, $middlewareBefore)
     {
         if(is_array($middlewareBefore)) {
             \Closure::bind(function () use ($middlewareBefore) {
