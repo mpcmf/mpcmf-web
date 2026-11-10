@@ -568,12 +568,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/mpcmf/mpcmf-console.git",
-                "reference": "8d27809d9f156b5f2d269eb7a7f1c1174919f871"
+                "reference": "c24437c76d6047ebe6b8a531ee3c67d730cc0ae3"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/mpcmf/mpcmf-console/zipball/8d27809d9f156b5f2d269eb7a7f1c1174919f871",
-                "reference": "8d27809d9f156b5f2d269eb7a7f1c1174919f871",
+                "url": "https://api.github.com/repos/mpcmf/mpcmf-console/zipball/c24437c76d6047ebe6b8a531ee3c67d730cc0ae3",
+                "reference": "c24437c76d6047ebe6b8a531ee3c67d730cc0ae3",
                 "shasum": ""
             },
             "require": {
@@ -607,7 +607,7 @@
                 "source": "https://github.com/mpcmf/mpcmf-console/tree/master",
                 "issues": "https://github.com/mpcmf/mpcmf-console/issues"
             },
-            "time": "2026-11-10T14:34:41+00:00"
+            "time": "2026-11-10T23:46:39+00:00"
         },
         {
             "name": "mpcmf/mpcmf-core",
@@ -615,12 +615,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/mpcmf/mpcmf-core.git",
-                "reference": "d7a2e79b022b5634458e8d7cf8ebfa6cafd1e4e3"
+                "reference": "4a4f5569f33c081c5e008f2fa9aef0dfd68b2e05"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/mpcmf/mpcmf-core/zipball/d7a2e79b022b5634458e8d7cf8ebfa6cafd1e4e3",
-                "reference": "d7a2e79b022b5634458e8d7cf8ebfa6cafd1e4e3",
+                "url": "https://api.github.com/repos/mpcmf/mpcmf-core/zipball/4a4f5569f33c081c5e008f2fa9aef0dfd68b2e05",
+                "reference": "4a4f5569f33c081c5e008f2fa9aef0dfd68b2e05",
                 "shasum": ""
             },
             "default-branch": true,
@@ -711,7 +711,7 @@
                 "source": "https://github.com/greevex/mpcmf-core",
                 "email": "greevex@gmail.com"
             },
-            "time": "2026-11-10T14:34:05+00:00",
+            "time": "2026-11-10T23:46:06+00:00",
             "scripts": {
                 "test": [
                     "@php -r \"file_exists('.mpcmfroot') || touch('.mpcmfroot');\"",
@@ -725,12 +725,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/mpcmf/mpcmf-signalHandler.git",
-                "reference": "ef9288ced5ed65ad9e6e2c472e95664960f0135f"
+                "reference": "b9a6770752616fdf3eac1bba50cf0f38121499fb"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/mpcmf/mpcmf-signalHandler/zipball/ef9288ced5ed65ad9e6e2c472e95664960f0135f",
-                "reference": "ef9288ced5ed65ad9e6e2c472e95664960f0135f",
+                "url": "https://api.github.com/repos/mpcmf/mpcmf-signalHandler/zipball/b9a6770752616fdf3eac1bba50cf0f38121499fb",
+                "reference": "b9a6770752616fdf3eac1bba50cf0f38121499fb",
                 "shasum": ""
             },
             "type": "library",
@@ -749,7 +749,7 @@
                     "email": "gilberg.vrn@gmail.com"
                 }
             ],
-            "time": "2026-11-09T23:58:11+00:00"
+            "time": "2026-11-10T23:46:06+00:00"
         },
         {
             "name": "nervetattoo/elasticsearch",
