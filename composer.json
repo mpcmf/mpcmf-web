@@ -20,7 +20,7 @@
         "mpcmf/mpcmf-core": "dev-master",
         "react/socket-client": "^0.5.0@dev",
         "react/socket": "^0.7@dev",
-        "guzzlehttp/psr7": "^2.12"
+        "guzzlehttp/psr7": "^1.9.1 || ^2.12.3"
     },
     "repositories": [
         {
