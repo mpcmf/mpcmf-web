@@ -9,14 +9,7 @@ use React\Socket\Connection;
 use React\Socket\ServerInterface;
 
 /**
- * react/socket 0.7 compatible server over a listening socket resource
- *
- * The socket may be created by this process ({@see listen()}) or inherited from the parent process:
- * the web server master opens the sockets before forking, so a child can be replaced while
- * new connections wait in the kernel queue of the shared socket.
- *
- * Unlike React\Socket\Server it gives access to the resource and can accept the already queued
- * connections before it stops listening ({@see acceptPending()}).
+ * react/socket 0.7 compatible server over an own or inherited listening socket
  *
  * @author Dmitry Emelyanov <gilberg.vrn@gmail.com>
  */
@@ -26,10 +19,16 @@ class listeningSocketServer
 {
     const DEFAULT_BACKLOG = 511;
 
-    /** @var resource|null */
+    /**
+     * Listening socket
+     *
+     * @var resource|null
+     */
     private $socket;
 
-    /** @var LoopInterface */
+    /**
+     * @var LoopInterface
+     */
     private $loop;
 
     private $listening = false;
@@ -37,7 +36,7 @@ class listeningSocketServer
     /**
      * Open a listening TCP socket (not attached to any loop)
      *
-     * @param string $host IP address, IPv6 with or without brackets
+     * @param string $host
      * @param int    $port
      * @param int    $backlog
      *
@@ -62,9 +61,11 @@ class listeningSocketServer
     }
 
     /**
-     * @param resource      $socket listening socket
+     * @param resource      $socket
      * @param LoopInterface $loop
-     * @param bool          $listen start accepting right away
+     * @param bool          $listen
+     *
+     * @throws \InvalidArgumentException
      */
     public function __construct($socket, LoopInterface $loop, $listen = true)
     {
@@ -125,11 +126,9 @@ class listeningSocketServer
     /**
      * Accept the connections already waiting in the kernel queue
      *
-     * Called before close() on shutdown: queued connections would get RST otherwise.
-     *
      * @param int $limit
      *
-     * @return int number of accepted connections
+     * @return int
      */
     public function acceptPending($limit = 10000)
     {
@@ -143,8 +142,6 @@ class listeningSocketServer
 
     /**
      * Stop listening and close the socket in this process
-     *
-     * An inherited socket stays open in the processes that still hold it.
      */
     public function close()
     {
@@ -161,7 +158,7 @@ class listeningSocketServer
      */
     private function acceptOne()
     {
-        // another process sharing the socket may have taken the connection already: EAGAIN is not an error
+        // EAGAIN: another process took the connection
         $client = @stream_socket_accept($this->socket, 0);
         if ($client === false) {
             return false;
