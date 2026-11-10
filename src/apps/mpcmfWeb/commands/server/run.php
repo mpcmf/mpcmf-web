@@ -15,6 +15,7 @@ use mpcmf\system\helper\service\signalHandler;
 use mpcmf\system\helper\system\profiler;
 use mpcmf\system\threads\gracefulStop;
 use mpcmf\system\threads\thread;
+use React\Dns\Config\Config as reactDnsConfig;
 use React\Dns\Resolver\Factory as reactResolver;
 use React\EventLoop\Factory;
 use React\EventLoop\LoopInterface;
@@ -86,6 +87,21 @@ abstract class run
      * @var float
      */
     private $masterConnectTimeout = 3.0;
+
+    /**
+     * Master server: DNS server (ip[:port]) to look up the child host on connections, null: the system one
+     *
+     * @var string|null
+     */
+    private $masterDnsServer;
+
+    /**
+     * Master server: address the children bind and the master connects them at, the child host (--bind) looked up
+     * once at start; null: the children bind the child host
+     *
+     * @var string|null
+     */
+    private $childBindAddress;
 
     /**
      * Master server sockets (listening socket, client and child connections) by resource id
@@ -339,6 +355,17 @@ abstract class run
     }
 
     /**
+     * Master server (-m): DNS server to look up the child host (--bind) on connections instead of
+     * looking it up once at start with the system resolver
+     *
+     * @param string|null $server ip[:port], null: look up once at start with the system resolver
+     */
+    public function setMasterDnsServer($server)
+    {
+        $this->masterDnsServer = ($server === null || $server === '') ? null : (string)$server;
+    }
+
+    /**
      * Define arguments
      *
      * @return mixed
@@ -350,6 +377,7 @@ abstract class run
         $this->addOption('bind', 'b', InputOption::VALUE_REQUIRED, 'Host to bind', '127.0.0.1');
         $this->addOption('ports', 'p', InputOption::VALUE_REQUIRED, 'Ports');
         $this->addOption('master-server', 'm', InputOption::VALUE_OPTIONAL, 'Start master server on this host:port');
+        $this->addOption('dns', null, InputOption::VALUE_REQUIRED, 'Master server: DNS server (ip[:port]) to look up the --bind host on connections; by default it is looked up once at start with the system resolver');
     }
 
     /**
@@ -386,6 +414,12 @@ abstract class run
         $this->gracefulStopActive = $this->gracefulStop && class_exists(gracefulStop::class) && method_exists(thread::class, 'setGracefulStop');
         $this->checkOverrides($input);
         $this->prepareThreads($input);
+        if($this->masterProxyActive) {
+            if($input->hasOption('dns') && $input->getOption('dns') !== null) {
+                $this->setMasterDnsServer($input->getOption('dns'));
+            }
+            $this->childBindAddress = $this->resolveMasterChildHost();
+        }
         $this->checkThreadsGraceful();
         if($this->sharedSocketsActive) {
             $this->openSharedSockets();
@@ -686,7 +720,7 @@ abstract class run
             // children of a killed master leave within a second (they check the master), wait for them a bit
             for($deadline = microtime(true) + 5.0; ; usleep(200000)) {
                 try {
-                    $this->sharedSockets[$port] = listeningSocketServer::listen($this->childHost, $port);
+                    $this->sharedSockets[$port] = listeningSocketServer::listen($this->childBindAddress ?? $this->childHost, $port);
                     break;
                 } catch(\RuntimeException $e) {
                     if(microtime(true) > $deadline) {
@@ -810,6 +844,50 @@ abstract class run
         ];
     }
 
+    /**
+     * Master server: DNS server of the resolver, the given one or the first nameserver of the system config
+     *
+     * @return string
+     */
+    protected function getMasterDnsServer()
+    {
+        if($this->masterDnsServer !== null) {
+
+            return $this->masterDnsServer;
+        }
+        $nameservers = reactDnsConfig::loadSystemConfigBlocking()->nameservers;
+
+        // resolv.conf without nameservers means the local one (man resolv.conf)
+        return reset($nameservers) ?: '127.0.0.1';
+    }
+
+    /**
+     * Master server: address the children bind and the master connects them at
+     *
+     * The child host (--bind) is looked up once at start with the system resolver (hosts, nsswitch, search domains)
+     * and the address is used by both sides, so they cannot differ (localhost is 127.0.0.1 for both). IPv4 only:
+     * a host with IPv6 addresses only is not found, give the IP then. With a DNS server given (--dns) nothing is
+     * looked up here: the children bind the host and the master looks it up by that server on connections.
+     *
+     * @return string
+     * @throws \RuntimeException the host is not found
+     */
+    protected function resolveMasterChildHost()
+    {
+        $host = $this->childHost;
+        if($this->masterDnsServer !== null || filter_var($host, FILTER_VALIDATE_IP) !== false) {
+
+            return $host;
+        }
+        $address = gethostbyname($host);
+        if(filter_var($address, FILTER_VALIDATE_IP) === false) {
+            throw new \RuntimeException("Unable to look up the child host {$host} (--bind) with the system resolver: use an IP address or a DNS server (--dns)");
+        }
+        $this->output->writeln("<error>[MASTER]</error> Child host {$host} is {$address}");
+
+        return $address;
+    }
+
     public function masterServer($bindMasterTo)
     {
         cli_set_process_title("mpcmf/console server:run/master -b {$bindMasterTo['host']} -p {$bindMasterTo['port']}");
@@ -820,7 +898,7 @@ abstract class run
         $this->masterLoop = $loop;
 
         $dnsResolverFactory = new reactResolver();
-        $dns = $dnsResolverFactory->createCached('8.8.8.8', $loop);
+        $dns = $dnsResolverFactory->createCached($this->getMasterDnsServer(), $loop);
         $connector = new TimeoutConnector(new Connector($loop, $dns), $this->masterConnectTimeout, $loop);
 
         $output->writeln('<error>[MASTER]</error> Binding callables and building socketServer');
@@ -899,7 +977,7 @@ abstract class run
         $childPort = json_decode($threadKey, true)['port'];
 
         $this->pendingConnects++;
-        $connector->create($this->childHost, $childPort)->then(function (reactStream $childStream) use ($clientConnection, $state) {
+        $connector->create($this->childBindAddress ?? $this->childHost, $childPort)->then(function (reactStream $childStream) use ($clientConnection, $state) {
             $this->pendingConnects--;
             if($state->closed) {
                 $childStream->close();
@@ -1189,7 +1267,7 @@ abstract class run
 
         $loop = Factory::create();
         $this->childLoop = $loop;
-        $socket = new listeningSocketServer($sharedSocket ?? listeningSocketServer::listen($this->childHost, $this->port), $loop, false);
+        $socket = new listeningSocketServer($sharedSocket ?? listeningSocketServer::listen($this->childBindAddress ?? $this->childHost, $this->port), $loop, false);
         $this->childSocket = $socket;
         $http = new reactHttpServer(function (ServerRequest $request) {
             if(MPCMF_DEBUG) {
