@@ -51,6 +51,17 @@ use Symfony\Component\Console\Output\OutputInterface;
 abstract class run
     extends consoleCommandBase
 {
+    /**
+     * Seconds a child behind the master proxy waits for the stop request of the master after a stop signal,
+     * see holdChildStopSignals()
+     */
+    const CHILD_STOP_HOLD = 3.0;
+
+    /**
+     * The master behind the proxy (-m) asks children to stop with this signal, see holdChildStopSignals()
+     */
+    const CHILD_STOP_SIGNAL = SIGUSR2;
+
     protected $maxMemoryUsage = 838860800; //800MiB
 
     protected $oomKillerEnabled = false;
@@ -184,6 +195,46 @@ abstract class run
      */
     private $retiredThreads = [];
 
+    /**
+     * When the retiring children were replaced, by key of retiredThreads
+     *
+     * @var float[]
+     */
+    private $retiredAt = [];
+
+    /**
+     * The master proxies connections to the children (-m), decided at start
+     *
+     * @var bool
+     */
+    private $masterProxyActive = false;
+
+    /**
+     * Child behind the master proxy: a stop signal held until the master asks to stop (see holdChildStopSignals())
+     *
+     * @var int|null
+     */
+    private $heldStopSignal;
+
+    /**
+     * @var float|null
+     */
+    private $heldStopAt;
+
+    /**
+     * Child behind the master proxy: the master has asked to stop (CHILD_STOP_SIGNAL)
+     *
+     * @var bool
+     */
+    private $masterStopReceived = false;
+
+    /**
+     * Child behind the master proxy: SIGTERM/SIGINT handlers replaced by holdChildStopSignals(), by signal
+     *
+     * @var callable[]
+     */
+    private $childStopHandlers = [];
+
     private $handledRequests = 0;
 
     private $childPrepared = false;
@@ -213,10 +264,11 @@ abstract class run
     /**
      * Graceful stop, on by default (needs mpcmf\system\threads\gracefulStop in mpcmf-core, without it the old behaviour)
      *
-     * Child: SIGTERM/SIGINT stop accepting, the accepted requests are finished, exit code 0.
-     * Master: forwards SIGTERM to the children, waits for them without starting new ones and exits with 0.
-     * A repeated SIGTERM/SIGINT to the master exits it at once; children ignore repeated signals (the master forwards
-     * SIGTERM they may have got from the process manager already), their deadline applies.
+     * Child: SIGTERM/SIGINT stop accepting, the accepted requests are finished, exit code 0. Behind the master proxy
+     * (-m) a child waits for the stop request of the master, see holdChildStopSignals().
+     * Master: forwards SIGTERM to the children (SIGUSR2 behind the proxy), waits for them without starting new ones and exits with 0.
+     * A repeated SIGTERM is ignored by the master and the children (process managers repeat it, the master forwards
+     * SIGTERM the children may have got already), the deadlines apply; a repeated SIGINT exits at once.
      *
      * Needs the base childServer() (and masterServer() with -m): with an overridden one the old behaviour is kept.
      *
@@ -329,6 +381,7 @@ abstract class run
             @mkdir($smartyDir, 0777, true);
         }
         $this->masterPid = getmypid();
+        $this->masterProxyActive = (bool)$input->getOption('master-server');
         $this->sharedSocketsActive = $this->gracefulRecycle !== false;
         $this->gracefulStopActive = $this->gracefulStop && class_exists(gracefulStop::class) && method_exists(thread::class, 'setGracefulStop');
         $this->checkOverrides($input);
@@ -368,7 +421,12 @@ abstract class run
         foreach($this->retiredThreads as $key => $thread) {
             if(!$thread->isAlive()) {
                 $this->output->writeln("<error>[MASTER]</error> Retired child {$thread->getPid()} exited with code " . json_encode($thread->getExitCode()));
-                unset($this->retiredThreads[$key]);
+                unset($this->retiredThreads[$key], $this->retiredAt[$key]);
+            } elseif(isset($this->retiredAt[$key]) && microtime(true) - $this->retiredAt[$key] > $this->gracefulStopTimeout + 5) {
+                // its own deadline is a timer of its loop: a request blocking the loop holds it forever
+                $this->output->writeln("<error>[MASTER]</error> Killing retired child {$thread->getPid()}: did not finish in time");
+                posix_kill($thread->getPid(), SIGKILL);
+                unset($this->retiredAt[$key]);
             }
         }
         if($this->shuttingDown) {
@@ -511,6 +569,12 @@ abstract class run
 
         if($this->gracefulStopActive) {
             gracefulStop::enable((int)ceil($this->gracefulStopTimeout) + 10);
+            if($this->masterProxyActive) {
+                // inherited by children forked from now on: the stop request may come before prepareChildProcess()
+                pcntl_signal(self::CHILD_STOP_SIGNAL, function () {
+                    $this->onMasterStopRequest();
+                });
+            }
         } elseif(class_exists(signalHandler::class)) {
             // without gracefulStop in core thread::masterSignalHandler() kills the children on SIGTERM:
             // do not start them again, exit
@@ -573,7 +637,7 @@ abstract class run
                     if($thread->isAlive()) {
                         // a graceful thread does not exit on a repeated SIGTERM (the process manager may have
                         // signalled the whole group already), the deadline of gracefulStop applies
-                        posix_kill($thread->getPid(), SIGTERM);
+                        posix_kill($thread->getPid(), $this->masterProxyActive ? self::CHILD_STOP_SIGNAL : SIGTERM);
                     }
                 }
             }
@@ -680,6 +744,7 @@ abstract class run
                 continue;
             }
             $this->retiredThreads[] = $thread;
+            $this->retiredAt[array_key_last($this->retiredThreads)] = microtime(true);
             $this->threads[$addr] = $this->createThread();
             try {
                 $this->threads[$addr]->start($addr);
@@ -1026,6 +1091,82 @@ abstract class run
         if($this->gracefulStopActive) {
             // a bit later than our own deadline: it fires even if the loop is blocked by a request
             gracefulStop::enable((int)ceil($this->gracefulStopTimeout) + 2);
+            if($this->masterProxyActive) {
+                $this->holdChildStopSignals();
+            }
+        }
+    }
+
+    /**
+     * Child behind the master proxy: stop when the master says so, not when the process manager signals the group
+     *
+     * The master stops accepting first and asks the children to stop after the connections it accepted reached
+     * a child (continueShutdown()); a child stopping on the signal of the process manager (systemd
+     * KillMode=control-group, processManager, Ctrl+C in a terminal) refuses them. siginfo of PHP has no sender pid
+     * for SIGTERM, so the master asks with CHILD_STOP_SIGNAL, and SIGTERM/SIGINT are held while the master is alive,
+     * until its request, at most CHILD_STOP_HOLD seconds: then the child stops by itself. A second SIGINT
+     * (Ctrl+C twice) is not held.
+     */
+    private function holdChildStopSignals()
+    {
+        foreach([SIGTERM, SIGINT] as $signal) {
+            $handler = pcntl_signal_get_handler($signal);
+            if(!is_callable($handler)) {
+                continue;
+            }
+            $this->childStopHandlers[$signal] = $handler;
+            pcntl_signal($signal, function ($signal, $info = null) {
+                if(!$this->masterStopReceived && posix_getppid() === $this->masterPid) {
+                    if($this->heldStopSignal === null) {
+                        $this->heldStopSignal = $signal;
+                        $this->heldStopAt = microtime(true);
+
+                        return;
+                    }
+                    if($signal !== SIGINT || $this->heldStopSignal !== SIGINT) {
+
+                        return;
+                    }
+                    $this->releaseHeldStopSignal();
+                }
+                ($this->childStopHandlers[$signal])($signal, $info);
+            });
+        }
+    }
+
+    /**
+     * Child: the master asked to stop, a stop signal for the handlers
+     */
+    private function onMasterStopRequest()
+    {
+        if(getmypid() === $this->masterPid || $this->masterStopReceived) {
+
+            return;
+        }
+        $this->masterStopReceived = true;
+        $this->heldStopSignal = null;
+        if(isset($this->childStopHandlers[SIGTERM])) {
+            ($this->childStopHandlers[SIGTERM])(SIGTERM);
+        } else {
+            gracefulStop::request();
+        }
+    }
+
+    /**
+     * Child: pass the held stop signal to the handlers if the master has not asked to stop in time
+     *
+     * @param bool $timeout only if CHILD_STOP_HOLD seconds are over
+     */
+    private function releaseHeldStopSignal($timeout = false)
+    {
+        if($this->heldStopSignal === null || ($timeout && microtime(true) - $this->heldStopAt < self::CHILD_STOP_HOLD)) {
+
+            return;
+        }
+        $signal = $this->heldStopSignal;
+        $this->heldStopSignal = null;
+        if(!$this->masterStopReceived && isset($this->childStopHandlers[$signal])) {
+            ($this->childStopHandlers[$signal])($signal);
         }
     }
 
@@ -1102,6 +1243,7 @@ abstract class run
         if($this->gracefulStopActive) {
             // a signal only interrupts stream_select(), the flag is checked here
             $loop->addPeriodicTimer(0.2, function () {
+                $this->releaseHeldStopSignal(true);
                 if(gracefulStop::isRequested()) {
                     $this->stopChild('stop requested');
                 }
